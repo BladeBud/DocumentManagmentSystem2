@@ -83,8 +83,8 @@ create table DM_DefTreeNode
     idTree integer not null references DM_Tree,
     idDefParentTreeNode integer not null,
     docIncludeCondition boolean not null,
-    nodeNameScript varchar(255) not null,
-    nodeAccessCondition boolean not null
+    nodeNameScript varchar(255) not null
+--     nodeAccessCondition boolean not null
 );
 
 create table DM_NodeXPath
