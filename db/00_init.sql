@@ -2,8 +2,9 @@ create table DM_DocType
 (
     idDocType serial
         primary key,
-    docTypeName varchar(255) not null
---     docNameScript varchar(255) not null,
+    docTypeName varchar(255) not null,
+    docNameScript varchar(255)
+--         docNameScript varchar(255) not null
 );
 
 create table DM_DocAttr
@@ -20,7 +21,8 @@ create table DM_DocTypeAttr
         primary key,
     idDocType integer not null references DM_DocType,
     idDocAttr integer not null references DM_DocAttr,
-    IsRequired boolean not null
+    isRequired boolean not null
+-- isScalar boolean not null
 );
 
 create table DM_Doc
