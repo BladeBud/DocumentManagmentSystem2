@@ -143,10 +143,44 @@ public class TypeCreator {
     }
     //----Type change-----------------------------------------------------------------------------------------------------
 
+    /**
+     * Changes the name and type of an existing type in the database.
+     * @param typeName
+     * @param nameScript
+     * @param attributeNames
+     * @param isRequired
+     */
 
     public void changeType(String typeName, String nameScript, List<String> attributeNames, List<Boolean> isRequired) {
-        // Create a new type with "version" added to the name
-        String newTypeName = typeName + "version";
-        createType(newTypeName, nameScript, attributeNames, isRequired);
+        // Query to find the highest version number for the type
+        String versionQuery = "SELECT doctypename FROM dm_doctype WHERE doctypename LIKE ? || 'version%' ORDER BY doctypename DESC LIMIT 1";
+
+        try (java.sql.Connection conn = getConnection();
+             var versionStmt = conn.prepareStatement(versionQuery)) {
+
+            versionStmt.setString(1, typeName);
+            int version = 1;
+
+            try (var rs = versionStmt.executeQuery()) {
+                if (rs.next()) {
+                    String lastVersion = rs.getString(1);
+                    // Extract version number from the last version
+                    try {
+                        String versionStr = lastVersion.substring(lastVersion.lastIndexOf("version") + 7);
+                        version = Integer.parseInt(versionStr) + 1;
+                    } catch (NumberFormatException | IndexOutOfBoundsException e) {
+                        // If parsing fails, start with version 1
+                        version = 1;
+                    }
+                }
+            }
+
+            // Create a new type with version + number
+            String newTypeName = typeName + "ver" + version;
+            createType(newTypeName, nameScript, attributeNames, isRequired);
+
+        } catch (java.sql.SQLException e) {
+            throw new RuntimeException("Error changing type in database.", e);
+        }
     }
 }
