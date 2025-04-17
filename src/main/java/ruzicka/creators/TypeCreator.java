@@ -21,6 +21,7 @@ public class TypeCreator {
 
     /**
      * creates a new type in the database. checks if the relevant attributes are there and if the type doesnt aleeady exist
+     *
      * @param typeName
      * @param nameScript
      * @param attributeNames
@@ -100,11 +101,14 @@ public class TypeCreator {
         }
     }
     //----Type delete-----------------------------------------------------------------------------------------------------
+
     /**
      * Deletes a type from the database. Checks if the type exists and if it is used in any document before deleting it.
+     *
      * @param typeName
+     *
      * @throws IllegalArgumentException if the type does not exist or is used in documents
-     * @throws RuntimeException if there is an error during the database operation
+     * @throws RuntimeException         if there is an error during the database operation
      */
 
     public void deleteType(String typeName) {
@@ -126,7 +130,7 @@ public class TypeCreator {
             }
 
             // Check if the type is used in any document
-           checkUsageStmt.setString(1, typeName);
+            checkUsageStmt.setString(1, typeName);
             try (var rs = checkUsageStmt.executeQuery()) {
                 if (rs.next() && rs.getInt(1) > 0) {
                     throw new IllegalArgumentException("Type is used in documents and cannot be deleted: " + typeName);
@@ -145,6 +149,7 @@ public class TypeCreator {
 
     /**
      * Changes the name and type of an existing type in the database.
+     *
      * @param typeName
      * @param nameScript
      * @param attributeNames

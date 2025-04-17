@@ -23,6 +23,7 @@ public class AttrCreator {
 
     /**
      * Creates a new attribute in the database. Checks if the attribute already exists before creating it.
+     *
      * @param attrName
      * @param attrType
      */
@@ -59,6 +60,7 @@ public class AttrCreator {
 
     /**
      * Changes the name and type of an existing attribute in the database.
+     *
      * @param attrName
      * @param newAttrName
      * @param attrType
