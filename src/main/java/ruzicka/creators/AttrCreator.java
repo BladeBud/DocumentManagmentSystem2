@@ -54,7 +54,8 @@ public class AttrCreator {
 
 
     //----Attribute change------------------------------------------------------------------------------------------------
-    //TODO: when changing the attribute, it should be checked if the attribute is used in any document
+    //TODO: when changing the attribute, it should be checked if the attribute is used in any document if yes then dont allow it
+    //meaning it has assigned a value through the value table conected to doctypeattr
 
     /**
      * Changes the name and type of an existing attribute in the database.
