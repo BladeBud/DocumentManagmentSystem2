@@ -64,4 +64,67 @@ public class DefCreator {
 //
 //
 //    }
+    //----Definition change-----------------------------------------------------------------------------------------------
+
+    /**
+     * Updates a definition of nodes by creating a new versioned copy
+     *
+     * @param idDefTreeNode       ID of the definition tree node to update
+     * @param docIncludeCondition New document include condition
+     * @param nodeNamescript      New node name script
+     */
+    public void changeDefinition(Integer idDefTreeNode, String docIncludeCondition, String nodeNamescript) {
+        // Query to find the original definition details
+        String defQuery = "SELECT idtree, iddefparenttreenode FROM dm_deftreenode WHERE iddefparenttreenode = ?";
+        // Query to find the highest version number for the definition
+        String versionQuery = "SELECT idtree FROM dm_deftreenode WHERE idtree LIKE ? || 'version%' ORDER BY idtree DESC LIMIT 1";
+
+        try (java.sql.Connection conn = getConnection();
+             var defStmt = conn.prepareStatement(defQuery);
+             var versionStmt = conn.prepareStatement(versionQuery)) {
+
+            // First, check if the definition exists and get its details
+            defStmt.setInt(1, idDefTreeNode);
+            Integer idTree = null;
+            String parentTreeNode = null;
+
+            try (var rs = defStmt.executeQuery()) {
+                if (rs.next()) {
+                    idTree = rs.getInt("idtree");
+                    parentTreeNode = rs.getString("iddefparenttreenode");
+                } else {
+                    throw new IllegalArgumentException("Definition not found with id: " + idDefTreeNode);
+                }
+            }
+
+            // Find the highest version number for this definition
+            versionStmt.setString(1, idTree.toString());
+            int version = 1;
+
+            try (var rs = versionStmt.executeQuery()) {
+                if (rs.next()) {
+                    String lastVersion = rs.getString(1);
+                    // Extract version number from the last version
+                    try {
+                        String versionStr = lastVersion.substring(lastVersion.lastIndexOf("version") + 7);
+                        version = Integer.parseInt(versionStr) + 1;
+                    } catch (NumberFormatException | IndexOutOfBoundsException e) {
+                        // If parsing fails, start with version 1
+                        version = 1;
+                    }
+                }
+            }
+
+            // Create a new definition with version + number
+            String newIdTree = idTree + "ver" + version;
+
+            // Create a new versioned definition using the createDefinition method
+            createDefinition(Integer.parseInt(newIdTree), parentTreeNode, docIncludeCondition, nodeNamescript);
+
+        } catch (java.sql.SQLException e) {
+            throw new RuntimeException("Error changing definition in database.", e);
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("Error parsing tree ID as integer.", e);
+        }
+    }
 }
