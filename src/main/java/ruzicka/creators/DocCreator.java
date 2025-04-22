@@ -22,15 +22,16 @@ public class DocCreator {
     }
 
     //----Document creation------------------------------------------------------------------------------------------------
+
     /**
      * Creates a new document in the database.
      *
-     * @param idDocType The document type ID
+     * @param idDocType     The document type ID
      * @param docNameScript The document name
-     * @param docContent The document content as a Blob
-     * @param docFormat The document format
+     * @param docContent    The document content as a Blob
+     * @param docFormat     The document format
      * @param docAttrValues List of attribute values
-     * @param docAttrNames List of attribute names
+     * @param docAttrNames  List of attribute names
      */
     public void createDocument(Integer idDocType, String docNameScript, Blob docContent, String docFormat,
                                List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
@@ -88,6 +89,83 @@ public class DocCreator {
         }
     }
 
+    //----Document deletion------------------------------------------------------------------------------------------------
+//TODO:kdyz budu delteovat document tak tady smazu jen samostatny dokument nekde je treba mit helper na kontrolu/mazani nodu ktery byudou prazdny
+    /*
+     * Deletes a document from all nodes in the tree. Without toucing the nodes
+     *
+     * @param idDoc The document ID to delete
+     */
+    public void deleteDocument(long idDoc) {
+        String deleteSql = "DELETE FROM dm_doc WHERE iddoc = ?";
+        try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(deleteSql)) {
+            ps.setLong(1, idDoc);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to delete document", e);
+        }
+    }
+
+    //----document change------------------------------------------------------------------------------------------------
+//TODO: pridat pak node strom update, todle meni jen document a ne node
+
+    /**
+     * Updates the document attributes. Not the content.
+     *
+     * @param idDoc         The document ID
+     * @param docAttrValues List of new attribute values
+     * @param docAttrNames  List of attribute names to update
+     */
+    public void updateDocument(long idDoc, Integer idDocType, List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
+
+        if (docAttrValues.size() != docAttrNames.size() || docAttrValues.size() != attrTypes.size()) {
+            throw new IllegalArgumentException("The number of attribute values, names, and types must match");
+        }
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+
+            try {
+                // Update all attribute values
+                for (int i = 0; i < docAttrNames.size(); i++) {
+                    int idDocTypeAttr = getAttributeIdByName(conn, idDocType, docAttrNames.get(i));
+                    String attrType = attrTypes.get(i);
+                    String attrValue = docAttrValues.get(i);
+
+                    saveAttributeValue(conn, idDoc, idDocTypeAttr, attrType, attrValue);
+                }
+
+                conn.commit();
+            } catch (Exception e) {
+                conn.rollback();
+                throw new RuntimeException("Failed to update document", e);
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Database connection error", e);
+        }
+    }
+    //----Document content update------------------------------------------------------------------------------------------------
+
+    /**
+     * Updates the document content without touching anything else.
+     *
+     * @param idDoc      The document ID
+     * @param docContent The new document content as a Blob
+     * @param docFormat  The new document format
+     */
+    public void updateDocumentContent(long idDoc, Blob docContent, String docFormat) {
+        String updateDocContentSql = "UPDATE dm_doccontent SET doccontent = ?, docformat = ? WHERE iddoc = ?";
+        try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(updateDocContentSql)) {
+            ps.setBlob(1, docContent);
+            ps.setString(2, docFormat);
+            ps.setLong(3, idDoc);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to update document content", e);
+        }
+    }
 
     //----Helper methods---------------------------------------------------------------------------------------------
     private void saveAttributeValue(Connection conn, long idDoc, int idDocTypeAttr, String attrType, String value) throws SQLException {
@@ -132,6 +210,7 @@ public class DocCreator {
             default -> throw new IllegalArgumentException("Unsupported attribute type: " + attrType);
         }
     }
+
     //--------------------------------------------------------------------------------------------
     public int getAttributeIdByName(Connection conn, int idDocType, String attrName) throws SQLException {
         String sql = "SELECT iddocattr FROM dm_docattr WHERE  attrname = ?";
