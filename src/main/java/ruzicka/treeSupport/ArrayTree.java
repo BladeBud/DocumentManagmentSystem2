@@ -141,5 +141,33 @@ public class ArrayTree {
         return newNodeId;
     }
 
+    //----Delete Node---------------------------------------------------------------------------------------------------
 
+    /**
+     * Deletes a node specified by its ID from the tree structure.
+     * The node is detached from its parent, and the relevant properties. All set to 0.
+     *
+     * @param nodeId the ID of the node to be deleted
+     */
+
+    public void deleteNode(int nodeId) {
+        // checks if the node even exists
+        if (nodeId < 0 || nodeId > maxNodes || nodes[nodeId] == null) {
+            return;
+        }
+
+        int parentId = nodes[nodeId].parentId;
+        if (parentId != nodeId && nodes[parentId] != null) {
+            nodes[parentId].nodeCount--;
+            //TODO: pridat rekurzivitu nebo nejaky clearence na mazani kolik je treba dokud je prazdno
+        }
+
+        nodes[nodeId].parentId = nextFreeIndex;
+        nodes[nodeId].idNodeName = 0;
+        nodes[nodeId].idNodeXPath = 0;
+        nodes[nodeId].nodeCount = 0;
+        nodes[nodeId].docCount = 0;
+
+        nextFreeIndex = nodeId;
+    }
 }
