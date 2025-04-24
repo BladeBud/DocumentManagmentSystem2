@@ -1,4 +1,4 @@
-package ruzicka.treesupport;
+package ruzicka.treeSupport;
 
 import java.nio.ByteBuffer;
 
@@ -28,7 +28,7 @@ public class ArrayTree {
             this.idNodeXPath = idNodeXPath;
         }
     }
-
+//----ArrayTree---------------------------------------------------------------------------------------------------------
     //----init Array Tree-----------------------------------------------------------------------------------------------
 
     /**
@@ -68,6 +68,7 @@ public class ArrayTree {
 
     /**
      * "encodes" tree content to bytearray
+     *
      * @return byte array representing the tree content
      */
     public byte[] toByteArray() {
@@ -88,6 +89,12 @@ public class ArrayTree {
     }
 
     //----fromByteArray-------------------------------------------------------------------------------------------------
+
+    /**
+     * "decodes" bytearray to tree content
+     *
+     * @param byteArray
+     */
     public void fromByteArray(byte[] byteArray) {
         ByteBuffer buf = ByteBuffer.wrap(byteArray);
         for (int i = 0; i < maxNodes; i++) {
@@ -104,4 +111,35 @@ public class ArrayTree {
             }
         }
     }
+    //----Node Operations--------------------------------------------------------------------------------------------------
+    //----Insert Node---------------------------------------------------------------------------------------------------
+
+    /**
+     * Inserts a new node into the tree structure and returns the ID of the newly created node.
+     * If necessary, the array is expanded.
+     * The new node is linked to the specified parent node, and parent node's node count is incremented.
+     *
+     * @param parentId    the ID of the parent node to which the new node will be attached
+     * @param idNodeName  the identifier for the name of the new node
+     * @param idNodeXPath the identifier for the XPath of the new node
+     *
+     * @return the ID of the newly created node
+     */
+    public int insertNode(int parentId, long idNodeName, long idNodeXPath) {
+        if (nextFreeIndex == -1) {
+            expandArray();
+        }
+
+        int newNodeId = nextFreeIndex;
+        TreeNode freeNode = nodes[newNodeId];
+        nextFreeIndex = freeNode.parentId;
+
+        nodes[newNodeId] = new TreeNode(parentId, idNodeName, idNodeXPath);
+        if (parentId != newNodeId) {
+            nodes[parentId].nodeCount++;
+        }
+        return newNodeId;
+    }
+
+
 }
