@@ -1,11 +1,13 @@
 package ruzicka.treesupport;
 
+import java.nio.ByteBuffer;
+
 /**
  * @author Adam
  * @since 2025-04-22
  */
 public class ArrayTree {
-    //-----------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------------
     private int maxNodes = 5;
     private TreeNode[] nodes = new TreeNode[maxNodes];
     private int nextFreeIndex = 1;
@@ -28,6 +30,10 @@ public class ArrayTree {
     }
 
     //----init Array Tree-----------------------------------------------------------------------------------------------
+
+    /**
+     * Initializes the array tree.
+     */
     public void initArrayTree() {
 
         nodes[0] = new TreeNode(0, 0, 0);
@@ -39,7 +45,11 @@ public class ArrayTree {
         nextFreeIndex = 1;
     }
 
-    //----expand Array Tree-----------------------------------------------------------------------------------------------
+    //----expand Array Tree---------------------------------------------------------------------------------------------
+
+    /**
+     * Expands the array by 5 nodes. Coneects freenode to last node of the old set. So it should be called before reaching the end.
+     */
     private void expandArray() {
         int oldSize = maxNodes;
         maxNodes += 5;
@@ -52,5 +62,46 @@ public class ArrayTree {
         newNodes[maxNodes - 1].parentId = -1;
         nextFreeIndex = oldSize;
         nodes = newNodes;
+    }
+
+    //----toByteArray---------------------------------------------------------------------------------------------------
+
+    /**
+     * "encodes" tree content to bytearray
+     * @return byte array representing the tree content
+     */
+    public byte[] toByteArray() {
+        int totalSize = maxNodes * 14;
+        ByteBuffer buf = ByteBuffer.allocate(totalSize);
+//TODO: zkontrolvoat short int long jak to ma byt
+        for (TreeNode node : nodes) {
+            if (node != null) {
+                buf.putShort((short) node.parentId);
+                buf.putShort((short) node.nodeCount);
+                buf.putInt((int) node.idNodeName);
+                buf.putInt((int) node.idNodeXPath);
+                buf.putShort((short) node.docCount);
+            }
+        }
+
+        return buf.array();
+    }
+
+    //----fromByteArray-------------------------------------------------------------------------------------------------
+    public void fromByteArray(byte[] byteArray) {
+        ByteBuffer buf = ByteBuffer.wrap(byteArray);
+        for (int i = 0; i < maxNodes; i++) {
+            if (nodes[i] != null) {
+                short parentId = buf.getShort();
+                short nodeCount = buf.getShort();
+                int idNodeName = buf.getInt();
+                int idNodeXPath = buf.getInt();
+                short docCount = buf.getShort();
+
+                nodes[i] = new TreeNode(parentId, idNodeName, idNodeXPath);
+                nodes[i].nodeCount = nodeCount;
+                nodes[i].docCount = docCount;
+            }
+        }
     }
 }
