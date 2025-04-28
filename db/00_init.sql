@@ -3,7 +3,7 @@ create table DM_DocType
     idDocType serial
         primary key,
     docTypeName varchar(255) not null,
-    docNameScript varchar(255)
+    docNameScript text not null
 --         docNameScript varchar(255) not null
 );
 
