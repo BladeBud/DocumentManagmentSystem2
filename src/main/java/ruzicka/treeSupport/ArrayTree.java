@@ -196,4 +196,36 @@ public class ArrayTree {
             currentId = node.parentId;
         }return xpath.toString();
     }
+//----Getters and Setters-----------------------------------------------------------------------------------------------
+
+    public int getCurrentNodeIndex() {
+        return currentNodeIndex;
+    }
+
+    public ArrayTree setCurrentNodeIndex(int currentNodeIndex) {
+        this.currentNodeIndex = currentNodeIndex;
+        return this;
+    }
+
+    public int getNextFreeIndex() {
+        return nextFreeIndex;
+    }
+
+    public ArrayTree setNextFreeIndex(int nextFreeIndex) {
+        this.nextFreeIndex = nextFreeIndex;
+        return this;
+    }
+
+    public TreeNode[] getNodes() {
+        return nodes;
+    }
+
+    public int getMaxNodes() {
+        return maxNodes;
+    }
+
+    public ArrayTree setMaxNodes(int maxNodes) {
+        this.maxNodes = maxNodes;
+        return this;
+    }
 }
