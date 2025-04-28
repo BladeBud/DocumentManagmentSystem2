@@ -1,5 +1,7 @@
 package ruzicka.treeSupport;
 
+import ruzicka.databaseOprations.DatabaseManager;
+
 import java.nio.ByteBuffer;
 
 /**
@@ -7,6 +9,8 @@ import java.nio.ByteBuffer;
  * @since 2025-04-22
  */
 public class ArrayTree {
+    //------------------------------------------------------------------------------------------------------------------
+    DatabaseManager dbmanager = new DatabaseManager();
     //------------------------------------------------------------------------------------------------------------------
     private int maxNodes = 5;
     private TreeNode[] nodes = new TreeNode[maxNodes];
@@ -72,16 +76,16 @@ public class ArrayTree {
      * @return byte array representing the tree content
      */
     public byte[] toByteArray() {
-        int totalSize = maxNodes * 14;
+        int totalSize = maxNodes * 28;
         ByteBuffer buf = ByteBuffer.allocate(totalSize);
-//TODO: zkontrolvoat short int long jak to ma byt
+
         for (TreeNode node : nodes) {
             if (node != null) {
-                buf.putShort((short) node.parentId);
-                buf.putShort((short) node.nodeCount);
-                buf.putInt((int) node.idNodeName);
-                buf.putInt((int) node.idNodeXPath);
-                buf.putShort((short) node.docCount);
+                buf.putInt((int) node.parentId);
+                buf.putInt((int) node.nodeCount);
+                buf.putLong((long) node.idNodeName);
+                buf.putLong((long) node.idNodeXPath);
+                buf.putInt((int) node.docCount);
             }
         }
 
@@ -99,11 +103,11 @@ public class ArrayTree {
         ByteBuffer buf = ByteBuffer.wrap(byteArray);
         for (int i = 0; i < maxNodes; i++) {
             if (nodes[i] != null) {
-                short parentId = buf.getShort();
-                short nodeCount = buf.getShort();
-                int idNodeName = buf.getInt();
-                int idNodeXPath = buf.getInt();
-                short docCount = buf.getShort();
+                int parentId = buf.getInt();
+                int nodeCount = buf.getInt();
+                long idNodeName = buf.getLong();
+                long idNodeXPath = buf.getLong();
+                int docCount = buf.getInt();
 
                 nodes[i] = new TreeNode(parentId, idNodeName, idNodeXPath);
                 nodes[i].nodeCount = nodeCount;
@@ -169,5 +173,27 @@ public class ArrayTree {
         nodes[nodeId].docCount = 0;
 
         nextFreeIndex = nodeId;
+    }
+//----Xpath operations--------------------------------------------------------------------------------------------------
+    //----generate Xpath------------------------------------------------------------------------------------------------
+    public String generateXpath(int nodeId) {
+        if (nodeId < 0 || nodeId > maxNodes || nodes[nodeId] == null) {
+            throw new IllegalArgumentException("Node with ID " + nodeId + " is invalid. Either does not exist or is out of bounds.");
+        }
+
+        //todo check if 0 is root or 1 is root
+        if (nodeId == 0) {
+            return "/root";
+        }
+
+        StringBuilder xpath = new StringBuilder();
+        int currentId = nodeId;
+        while (currentId != 0) {
+            TreeNode node = nodes[currentId];
+            if (node.idNodeName == 0) break;
+            String nodeName = dbmanager.getNodeNameById(node.idNodeName);
+            xpath.insert(0, "/" + nodeName);
+            currentId = node.parentId;
+        }return xpath.toString();
     }
 }
