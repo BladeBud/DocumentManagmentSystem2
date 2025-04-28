@@ -22,10 +22,10 @@ public class TypeCreator {
     /**
      * creates a new type in the database. checks if the relevant attributes are there and if the type doesnt aleeady exist
      *
-     * @param typeName
-     * @param nameScript
-     * @param attributeNames
-     * @param isRequired
+     * @param typeName name of the type to be created
+     * @param nameScript name script for the new type
+     * @param attributeNames list of attribute names for the new type
+     * @param isRequired list of booleans indicating if the attributes are required
      */
 
     public void createType(String typeName, String nameScript, List<String> attributeNames, List<Boolean> isRequired) {
@@ -105,7 +105,7 @@ public class TypeCreator {
     /**
      * Deletes a type from the database. Checks if the type exists and if it is used in any document before deleting it.
      *
-     * @param typeName
+     * @param typeName name of the type to be deleted
      *
      * @throws IllegalArgumentException if the type does not exist or is used in documents
      * @throws RuntimeException         if there is an error during the database operation
@@ -150,10 +150,10 @@ public class TypeCreator {
     /**
      * Changes the name and type of an existing type in the database.
      *
-     * @param typeName
-     * @param nameScript
-     * @param attributeNames
-     * @param isRequired
+     * @param typeName name of the type to be changed
+     * @param nameScript name script for the new type
+     * @param attributeNames list of attribute names for the new type
+     * @param isRequired list of booleans indicating if the attributes are required
      */
 
     public void changeType(String typeName, String nameScript, List<String> attributeNames, List<Boolean> isRequired) {

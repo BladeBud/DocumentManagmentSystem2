@@ -27,13 +27,12 @@ public class DocCreator {
      * Creates a new document in the database.
      *
      * @param idDocType     The document type ID
-     * @param docNameScript The document name
      * @param docContent    The document content as a Blob
      * @param docFormat     The document format
      * @param docAttrValues List of attribute values
      * @param docAttrNames  List of attribute names
      */
-    public void createDocument(Integer idDocType, String docNameScript, Blob docContent, String docFormat,
+    public void createDocument(Integer idDocType, Blob docContent, String docFormat,
                                List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
 
         if (docAttrValues.size() != docAttrNames.size() || docAttrValues.size() != attrTypes.size()) {
@@ -46,10 +45,12 @@ public class DocCreator {
             try {
                 // Insert into dm_doc and get the generated ID
                 long idDoc;
+                // Get the document name by executing the nameScript
+                String docNameScriptResult = getDocumentName(idDocType, docAttrValues, docAttrNames);
                 String insertSql = "INSERT INTO dm_doc (iddoctype, docname) VALUES (?, ?) RETURNING iddoc";
                 try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
                     ps.setInt(1, idDocType);
-                    ps.setString(2, docNameScript);
+                    ps.setString(2, docNameScriptResult);
                     try (var rs = ps.executeQuery()) {
                         if (rs.next()) {
                             idDoc = rs.getLong(1);
@@ -87,6 +88,11 @@ public class DocCreator {
         } catch (SQLException e) {
             throw new RuntimeException("Database connection error", e);
         }
+    }
+
+    //----Document insert into tree-------------------------------------------------------------------------------------
+    public void insertDocumentIntoTree(Integer idDocType, String docNameScript, Blob docContent, String docFormat) {
+
     }
 
     //----Document deletion------------------------------------------------------------------------------------------------
@@ -167,7 +173,20 @@ public class DocCreator {
         }
     }
 
-    //----Helper methods---------------------------------------------------------------------------------------------
+//----Helper methods----------------------------------------------------------------------------------------------------
+    //----Save attribute value------------------------------------------------------------------------------------------
+
+    /**
+     * Saves the attribute value to the appropriate table based on its type.
+     *
+     * @param conn          The database connection
+     * @param idDoc         The document ID
+     * @param idDocTypeAttr The document type attribute ID
+     * @param attrType      The attribute type (string, date, int)
+     * @param value         The attribute value
+     *
+     * @throws SQLException If an error occurs while accessing the database
+     */
     private void saveAttributeValue(Connection conn, long idDoc, int idDocTypeAttr, String attrType, String value) throws SQLException {
         String insertQuery;
 
@@ -211,7 +230,19 @@ public class DocCreator {
         }
     }
 
-    //--------------------------------------------------------------------------------------------
+    //----get attribute id by name--------------------------------------------------------------------------------------
+
+    /**
+     * Retrieves the attribute ID by its name.
+     *
+     * @param conn      The database connection
+     * @param idDocType The document type ID
+     * @param attrName  The attribute name
+     *
+     * @return The attribute ID
+     *
+     * @throws SQLException If an error occurs while accessing the database
+     */
     public int getAttributeIdByName(Connection conn, int idDocType, String attrName) throws SQLException {
         String sql = "SELECT iddocattr FROM dm_docattr WHERE  attrname = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -221,6 +252,55 @@ public class DocCreator {
                     return rs.getInt("iddocattr");
                 } else {
                     throw new SQLException("Attribute not found: " + attrName);
+                }
+            }
+        }
+    }
+    //----get document name by executing the nameScript-----------------------------------------------------------------
+
+    /**
+     * Gets document name by executing the nameScript for the given document type
+     *
+     * @param idDocType     The document type ID
+     * @param docAttrValues List of attribute values
+     * @param docAttrNames  List of attribute names
+     *
+     * @return Generated document name
+     */
+    private String getDocumentName(Integer idDocType, List<String> docAttrValues, List<String> docAttrNames) throws SQLException {
+        String nameScript = null;
+
+        // First, get the nameScript for the document type
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement("SELECT docnamescript FROM dm_doctype WHERE iddoctype = ?")) {
+            ps.setInt(1, idDocType);
+            try (var rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    nameScript = rs.getString("docnamescript");
+                } else {
+                    throw new SQLException("Document type not found: " + idDocType);
+                }
+            }
+        }
+
+        if (nameScript == null || nameScript.isEmpty()) {
+            throw new IllegalStateException("Name script is not defined for document type: " + idDocType);
+        }
+
+        // Execute the nameScript query
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(nameScript)) {
+
+            // For each attribute in docAttrNames, set its value in the prepared statement
+            for (int i = 0; i < docAttrNames.size(); i++) {
+                ps.setString(i + 1, docAttrValues.get(i));
+            }
+
+            try (var rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString(1); // Return the first column of the result
+                } else {
+                    throw new SQLException("Name script execution returned no results");
                 }
             }
         }

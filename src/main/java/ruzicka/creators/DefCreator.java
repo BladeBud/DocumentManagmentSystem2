@@ -115,7 +115,7 @@ public class DefCreator {
                 }
             }
 
-            // Create a new definition with version + number
+            // Create a new definition with a version + number
             String newIdTree = idTree + "ver" + version;
 
             // Create a new versioned definition using the createDefinition method
