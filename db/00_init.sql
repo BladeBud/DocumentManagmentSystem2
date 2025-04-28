@@ -84,7 +84,7 @@ create table DM_DefTreeNode
         primary key,
     idTree integer not null references DM_Tree,
     idDefParentTreeNode integer not null,
-    docIncludeCondition boolean not null,
+    docIncludeCondition text not null,
     nodeNameScript varchar(255) not null
 --     nodeAccessCondition boolean not null
 );
