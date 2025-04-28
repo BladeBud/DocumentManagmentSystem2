@@ -43,10 +43,11 @@ public class DocCreator {
             conn.setAutoCommit(false);
 
             try {
-                // Insert into dm_doc and get the generated ID
+            // Insert into dm_doc and get the generated ID
                 long idDoc;
                 // Get the document name by executing the nameScript
                 String docNameScriptResult = getDocumentName(idDocType, docAttrValues, docAttrNames);
+
                 String insertSql = "INSERT INTO dm_doc (iddoctype, docname) VALUES (?, ?) RETURNING iddoc";
                 try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
                     ps.setInt(1, idDocType);
@@ -61,13 +62,7 @@ public class DocCreator {
                 }
 
                 // Insert document content
-                String insertDocContentSql = "INSERT INTO dm_doccontent (iddoc, doccontent, docformat) VALUES (?, ?, ?)";
-                try (PreparedStatement ps = conn.prepareStatement(insertDocContentSql)) {
-                    ps.setLong(1, idDoc);
-                    ps.setBlob(2, docContent);
-                    ps.setString(3, docFormat);
-                    ps.executeUpdate();
-                }
+                insertDocContent(docContent, docFormat, conn, idDoc);
 
                 // Save all attribute values
                 for (int i = 0; i < docAttrNames.size(); i++) {
@@ -174,6 +169,27 @@ public class DocCreator {
     }
 
 //----Helper methods----------------------------------------------------------------------------------------------------
+    //----Insert document content----------------------------------------------------------------------------------------
+
+    /**
+     * Inserts the document content into the database.
+     *
+     * @param docContent The document content as a Blob
+     * @param docFormat  The document format
+     * @param conn       The database connection
+     * @param idDoc      The document ID
+     *
+     * @throws SQLException If an error occurs while accessing the database
+     */
+    private static void insertDocContent(Blob docContent, String docFormat, Connection conn, long idDoc) throws SQLException {
+        String insertDocContentSql = "INSERT INTO dm_doccontent (iddoc, doccontent, docformat) VALUES (?, ?, ?)";
+        try (PreparedStatement ps = conn.prepareStatement(insertDocContentSql)) {
+            ps.setLong(1, idDoc);
+            ps.setBlob(2, docContent);
+            ps.setString(3, docFormat);
+            ps.executeUpdate();
+        }
+    }
     //----Save attribute value------------------------------------------------------------------------------------------
 
     /**
