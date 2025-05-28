@@ -1,5 +1,7 @@
 package ruzicka.creators;
 
+import ruzicka.databaseOprations.DatabaseManager;
+
 /**
  * @author Adam
  * @since 2025-04-17
@@ -9,7 +11,6 @@ public class DefCreator {
     private static final String DB_URL = "jdbc:postgresql://localhost:5432/DMSdb";
     private static final String DB_USER = "bladebud";
     private static final String DB_PASSWORD = "44DM5";
-
     //----Database connection---------------------------------------------------------------------------------------------
     public java.sql.Connection getConnection() throws java.sql.SQLException {
         return java.sql.DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);

@@ -2,6 +2,7 @@ package ruzicka.databaseOprations;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
 /**
@@ -115,5 +116,18 @@ public class DatabaseManager {
         } catch (SQLException e) {
             throw new RuntimeException("Error fetching node XPath from database.", e);
         }
+    }
+    //----Get Or Create Default Tree------------------------------------------------------------------------------------
+    private int getOrCreateDefaultTree(Connection conn) throws SQLException {
+        // Check if the default tree already exists
+        String checkSql = "SELECT idtree FROM dm_deftreenode LIMIT 1";
+
+        try (PreparedStatement stmt = conn.prepareStatement(checkSql)) {
+            var rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getInt("idTree");
+            }
+        }
+
     }
 }

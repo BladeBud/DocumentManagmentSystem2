@@ -32,8 +32,7 @@ public class DocCreator {
      * @param docAttrValues List of attribute values
      * @param docAttrNames  List of attribute names
      */
-    public void createDocument(Integer idDocType, Blob docContent, String docFormat,
-                               List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
+    public long createDocument(Integer idDocType, Blob docContent, String docFormat, List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
 
         if (docAttrValues.size() != docAttrNames.size() || docAttrValues.size() != attrTypes.size()) {
             throw new IllegalArgumentException("The number of attribute values, names, and types must match");
@@ -43,7 +42,7 @@ public class DocCreator {
             conn.setAutoCommit(false);
 
             try {
-            // Insert into dm_doc and get the generated ID
+                // Insert into dm_doc and get the generated ID
                 long idDoc;
                 // Get the document name by executing the nameScript
                 String docNameScriptResult = getDocumentName(idDocType, docAttrValues, docAttrNames);
@@ -65,15 +64,12 @@ public class DocCreator {
                 insertDocContent(docContent, docFormat, conn, idDoc);
 
                 // Save all attribute values
-                for (int i = 0; i < docAttrNames.size(); i++) {
-                    int idDocTypeAttr = getAttributeIdByName(conn, idDocType, docAttrNames.get(i));
-                    String attrType = attrTypes.get(i);
-                    String attrValue = docAttrValues.get(i);
+                saveAllAttrVal(idDocType, docAttrValues, docAttrNames, attrTypes, conn, idDoc);
 
-                    saveAttributeValue(conn, idDoc, idDocTypeAttr, attrType, attrValue);
-                }
-
+                // Commit the transaction
                 conn.commit();
+
+                return idDoc; // Return the generated document ID
             } catch (Exception e) {
                 conn.rollback();
                 throw new RuntimeException("Failed to create document", e);
@@ -84,12 +80,6 @@ public class DocCreator {
             throw new RuntimeException("Database connection error", e);
         }
     }
-
-    //----Document insert into tree-------------------------------------------------------------------------------------
-    public void insertDocumentIntoTree(Integer idDocType, String docNameScript, Blob docContent, String docFormat) {
-
-    }
-
     //----Document deletion------------------------------------------------------------------------------------------------
 //TODO:kdyz budu delteovat document tak tady smazu jen samostatny dokument nekde je treba mit helper na kontrolu/mazani nodu ktery byudou prazdny
     /*
@@ -128,15 +118,7 @@ public class DocCreator {
 
             try {
                 // Update all attribute values
-                for (int i = 0; i < docAttrNames.size(); i++) {
-                    int idDocTypeAttr = getAttributeIdByName(conn, idDocType, docAttrNames.get(i));
-                    String attrType = attrTypes.get(i);
-                    String attrValue = docAttrValues.get(i);
-
-                    saveAttributeValue(conn, idDoc, idDocTypeAttr, attrType, attrValue);
-                }
-
-                conn.commit();
+                saveAllAttrVal(idDocType, docAttrValues, docAttrNames, attrTypes, conn, idDoc);
             } catch (Exception e) {
                 conn.rollback();
                 throw new RuntimeException("Failed to update document", e);
@@ -190,7 +172,7 @@ public class DocCreator {
             ps.executeUpdate();
         }
     }
-    //----Save attribute value------------------------------------------------------------------------------------------
+    //----Sort and Save attribute value------------------------------------------------------------------------------------------
 
     /**
      * Saves the attribute value to the appropriate table based on its type.
@@ -203,7 +185,7 @@ public class DocCreator {
      *
      * @throws SQLException If an error occurs while accessing the database
      */
-    private void saveAttributeValue(Connection conn, long idDoc, int idDocTypeAttr, String attrType, String value) throws SQLException {
+    private void sortSaveAttrVal(Connection conn, long idDoc, int idDocTypeAttr, String attrType, String value) throws SQLException {
         String insertQuery;
 
         switch (attrType.toLowerCase()) {
@@ -244,6 +226,31 @@ public class DocCreator {
             }
             default -> throw new IllegalArgumentException("Unsupported attribute type: " + attrType);
         }
+    }
+    //----Save all attribute values-------------------------------------------------------------------------------------
+    /**
+     * Saves all attribute values for the document.
+     *
+     * @param idDocType     The document type ID
+     * @param docAttrValues List of attribute values
+     * @param docAttrNames  List of attribute names
+     * @param attrTypes     List of attribute types
+     * @param conn          The database connection
+     * @param idDoc         The document ID
+     *
+     * @throws SQLException If an error occurs while accessing the database
+     */
+
+    private void saveAllAttrVal(Integer idDocType, List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes, Connection conn, long idDoc) throws SQLException {
+        for (int i = 0; i < docAttrNames.size(); i++) {
+            int idDocTypeAttr = getAttributeIdByName(conn, idDocType, docAttrNames.get(i));
+            String attrType = attrTypes.get(i);
+            String attrValue = docAttrValues.get(i);
+
+            sortSaveAttrVal(conn, idDoc, idDocTypeAttr, attrType, attrValue);
+        }
+
+        conn.commit();
     }
 
     //----get attribute id by name--------------------------------------------------------------------------------------
