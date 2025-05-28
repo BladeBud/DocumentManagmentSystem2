@@ -58,7 +58,7 @@ public class DocHandler {
     private void addDocumentToTree(Connection conn, long idDoc, int treeId) throws SQLException {
         // Get all tree node definitions for this tree
         String nodeDefQuery = "SELECT iddefparenttreenode, docincludecondition FROM dm_deftreenode " +
-                "WHERE idtree = ? AND docincludecondition != 'false'";
+                "WHERE idtree = ? AND docincludecondition != 'false' AND docincludecondition IS NOT NULL AND TRIM(docincludecondition) <> ''"; // Added more robust check for empty/null
 
         try (PreparedStatement nodeDefStmt = conn.prepareStatement(nodeDefQuery)) {
             nodeDefStmt.setInt(1, treeId);
@@ -66,17 +66,25 @@ public class DocHandler {
 
             while (nodeDefRs.next()) {
                 String includeCondition = nodeDefRs.getString("docincludecondition");
-                int parentNodeId = nodeDefRs.getInt("iddefparenttreenode");
+                int parentNodeId = nodeDefRs.getInt("iddefparenttreenode"); // This is iddefparenttreenode, not an actual node ID from ArrayTree
 
-                // Check if document matches the include condition
-                String checkSql = "SELECT EXISTS (SELECT 1 FROM dm_doc d WHERE d.iddoc = ? AND " + includeCondition + ")";
+                // IMPORTANT: The includeCondition from the DB should be written carefully.
+                // We assume it's a valid SQL boolean expression that can refer to a document aliased as 'd'.
+                // Example: "EXISTS (SELECT 1 FROM dm_attrvaluestr avs ... WHERE avs.iddoc = d.iddoc AND ...)"
+                String safeIncludeCondition = includeCondition.replaceAll("\\b(dm_doc|DM_DOC)\\.iddoc\\b", "d.iddoc");
+
+                String checkSql = "SELECT EXISTS (SELECT 1 FROM dm_doc d WHERE d.iddoc = ? AND (" + safeIncludeCondition + "))";
+
+                // For debugging the generated SQL:
+                // System.out.println("Executing checkSql: " + checkSql + " with idDoc: " + idDoc);
+
                 try (PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
                     checkStmt.setLong(1, idDoc);
                     var checkRs = checkStmt.executeQuery();
 
                     if (checkRs.next() && checkRs.getBoolean(1)) {
-                        // Document matches condition, add it to this node
-                        addDocumentToNode(conn, idDoc, treeId, parentNodeId);
+                        // Document matches condition, add it to this node (definition context)
+                        addDocumentToNode(conn, idDoc, treeId, parentNodeId); // parentNodeId here is iddeftreenode
                     }
                 }
             }

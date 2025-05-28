@@ -221,7 +221,7 @@ public class DocCreator {
                 try (PreparedStatement ps = conn.prepareStatement(insertQuery)) {
                     ps.setLong(1, idDoc);
                     ps.setInt(2, idDocTypeAttr);
-                    ps.setInt(3, Integer.parseInt(value)); // Convert string to int
+                    ps.setLong(3, Long.parseLong(value)); // Convert string to long and use setLong
                     ps.executeUpdate();
                 }
             }
@@ -250,8 +250,6 @@ public class DocCreator {
 
             sortSaveAttrVal(conn, idDoc, idDocTypeAttr, attrType, attrValue);
         }
-
-        conn.commit();
     }
 
     //----get attribute id by name--------------------------------------------------------------------------------------
@@ -267,15 +265,44 @@ public class DocCreator {
      *
      * @throws SQLException If an error occurs while accessing the database
      */
+    /**
+     * Retrieves the document type attribute ID (iddoctypeattr) by its name and document type.
+     *
+     * @param conn      The database connection
+     * @param idDocType The document type ID
+     * @param attrName  The attribute name
+     *
+     * @return The document type attribute ID (iddoctypeattr)
+     *
+     * @throws SQLException If an error occurs while accessing the database or if attribute/association not found
+     */
     public int getAttributeIdByName(Connection conn, int idDocType, String attrName) throws SQLException {
-        String sql = "SELECT iddocattr FROM dm_docattr WHERE  attrname = ?";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        // Step 1: Get idDocAttr from dm_docattr using attrName
+        String getAttrIdSql = "SELECT iddocattr FROM dm_docattr WHERE attrname = ?";
+        int idDocAttrValue; // Renamed to avoid conflict with idDocAttr in scope for table name
+        try (PreparedStatement ps = conn.prepareStatement(getAttrIdSql)) {
             ps.setString(1, attrName);
             try (var rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return rs.getInt("iddocattr");
+                    idDocAttrValue = rs.getInt("iddocattr");
                 } else {
-                    throw new SQLException("Attribute not found: " + attrName);
+                    throw new SQLException("Attribute core definition not found for name: " + attrName);
+                }
+            }
+        }
+
+        // Step 2: Get iddoctypeattr from dm_doctypeattr using idDocType and idDocAttrValue
+        String getDocTypeAttrIdSql = "SELECT iddoctypeattr FROM dm_doctypeattr WHERE iddoctype = ? AND iddocattr = ?";
+        try (PreparedStatement ps = conn.prepareStatement(getDocTypeAttrIdSql)) {
+            ps.setInt(1, idDocType);
+            ps.setInt(2, idDocAttrValue);
+            try (var rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("iddoctypeattr");
+                } else {
+                    throw new SQLException("Attribute '" + attrName + "' (core ID: " + idDocAttrValue +
+                            ") is not associated with document type ID " + idDocType +
+                            " in dm_doctypeattr table.");
                 }
             }
         }
