@@ -32,7 +32,8 @@ public class DocCreator {
      * @param docAttrValues List of attribute values
      * @param docAttrNames  List of attribute names
      */
-    public long createDocument(Integer idDocType, Blob docContent, String docFormat, List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
+    public long createDocument(Integer idDocType, Blob docContent, String docFormat, List<String> docAttrValues,
+                               List<String> docAttrNames, List<String> attrTypes) {
 
         if (docAttrValues.size() != docAttrNames.size() || docAttrValues.size() != attrTypes.size()) {
             throw new IllegalArgumentException("The number of attribute values, names, and types must match");
@@ -215,7 +216,7 @@ public class DocCreator {
                     ps.executeUpdate();
                 }
             }
-            case "int" -> {
+            case "long" -> {
                 insertQuery = "INSERT INTO DM_AttrValueLong (idDoc, idDocTypeAttr, Value) VALUES (?, ?, ?)";
                 try (PreparedStatement ps = conn.prepareStatement(insertQuery)) {
                     ps.setLong(1, idDoc);

@@ -28,11 +28,11 @@ VALUES (
                AND av.value = :node_name
            )',  -- docIncludeCondition
            'SELECT DISTINCT av.value
-           FROM dm_attrvaluestr av
-           JOIN dm_doctypeattr dta ON av.iddoctypeattr = dta.iddoctypeattr
-           JOIN dm_docattr da ON dta.iddocattr = da.iddocattr
-           WHERE da.attrname = ''Zakaznik''
-           ORDER BY av.value'  -- nodeNameScript
+            FROM dm_attrvaluestr av
+            JOIN dm_doctypeattr dta ON av.iddoctypeattr = dta.iddoctypeattr
+            JOIN dm_docattr da ON dta.iddocattr = da.iddocattr
+            WHERE da.attrname = ?
+            ORDER BY av.value'
        );
 
 -- Year level - second layer under customers
@@ -59,9 +59,9 @@ VALUES (
                AND CAST(av2.value AS VARCHAR) = :node_name
            )',  -- docIncludeCondition
            'SELECT DISTINCT CAST(av.value AS VARCHAR)
-           FROM dm_attrvaluelong av
-           JOIN dm_doctypeattr dta ON av.iddoctypeattr = dta.iddoctypeattr
-           JOIN dm_docattr da ON dta.iddocattr = da.iddocattr
-           WHERE da.attrname = ''Rok''
-           ORDER BY av.value DESC'  -- nodeNameScript
+    FROM dm_attrvaluelong av
+    JOIN dm_doctypeattr dta ON av.iddoctypeattr = dta.iddoctypeattr
+    JOIN dm_docattr da ON dta.iddocattr = da.iddocattr
+    WHERE da.attrname = ?
+    ORDER BY av.value DESC'  -- nodeNameScript
        );

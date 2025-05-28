@@ -118,16 +118,16 @@ public class DatabaseManager {
         }
     }
     //----Get Or Create Default Tree------------------------------------------------------------------------------------
-    private int getOrCreateDefaultTree(Connection conn) throws SQLException {
-        // Check if the default tree already exists
-        String checkSql = "SELECT idtree FROM dm_deftreenode LIMIT 1";
-
-        try (PreparedStatement stmt = conn.prepareStatement(checkSql)) {
-            var rs = stmt.executeQuery();
-            if (rs.next()) {
-                return rs.getInt("idTree");
-            }
-        }
-
-    }
+//    private int getOrCreateDefaultTree(Connection conn) throws SQLException {
+//        // Check if the default tree already exists
+//        String checkSql = "SELECT idtree FROM dm_deftreenode LIMIT 1";
+//
+//        try (PreparedStatement stmt = conn.prepareStatement(checkSql)) {
+//            var rs = stmt.executeQuery();
+//            if (rs.next()) {
+//                return rs.getInt("idTree");
+//            }
+//        }
+//
+//    }
 }
