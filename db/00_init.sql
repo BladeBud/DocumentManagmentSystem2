@@ -37,7 +37,7 @@ create table DM_DocContent
 (
     idDoc serial
         primary key references DM_Doc,
-    docContent text not null,
+    docContent text,
     docFormat varchar(255) not null
 );
 
@@ -75,7 +75,7 @@ create table DM_Tree
     treeName varchar(255) not null,
     treeType integer not null,
     ixFreeNode integer not null,
-    TreeContent text not null
+    TreeContent bytea not null
 );
 
 create table DM_DefTreeNode

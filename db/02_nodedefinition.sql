@@ -18,15 +18,9 @@ INSERT INTO dm_deftreenode (idTree, idDefParentTreeNode, docIncludeCondition, no
 VALUES (
            1,  -- idTree
            1,  -- idDefParentTreeNode (points to root node)
-           'EXISTS (
-               SELECT 1
-               FROM dm_attrvaluestr av
-               JOIN dm_doctypeattr dta ON av.iddoctypeattr = dta.iddoctypeattr
-               JOIN dm_docattr da ON dta.iddocattr = da.iddocattr
-               WHERE av.iddoc = dm_doc.iddoc
-               AND da.attrname = ''Zakaznik''
-               AND av.value = :node_name
-           )',  -- docIncludeCondition
+           'EXISTS (SELECT 1 FROM dm_attrvaluestr avs JOIN dm_doctypeattr dta ON avs.iddoctypeattr' ||
+           ' = dta.iddoctypeattr JOIN dm_docattr da_ref ON dta.iddocattr = da_ref.iddocattr WHERE avs.iddoc = d.iddoc ' ||
+           'AND da_ref.attrname = ''Zakaznik'' AND avs.value IS NOT NULL)',  -- docIncludeCondition
            'SELECT DISTINCT av.value
             FROM dm_attrvaluestr av
             JOIN dm_doctypeattr dta ON av.iddoctypeattr = dta.iddoctypeattr
@@ -40,24 +34,11 @@ INSERT INTO dm_deftreenode (idTree, idDefParentTreeNode, docIncludeCondition, no
 VALUES (
            1,  -- idTree
            2,  -- idDefParentTreeNode (points to customer node)
-           'EXISTS (
-               SELECT 1
-               FROM dm_attrvaluestr av1
-               JOIN dm_doctypeattr dta1 ON av1.iddoctypeattr = dta1.iddoctypeattr
-               JOIN dm_docattr da1 ON dta1.iddocattr = da1.iddocattr
-               WHERE av1.iddoc = dm_doc.iddoc
-               AND da1.attrname = ''Zakaznik''
-               AND av1.value = :parent_node_name
-           )
-           AND EXISTS (
-               SELECT 1
-               FROM dm_attrvaluelong av2
-               JOIN dm_doctypeattr dta2 ON av2.iddoctypeattr = dta2.iddoctypeattr
-               JOIN dm_docattr da2 ON dta2.iddocattr = da2.iddocattr
-               WHERE av2.iddoc = dm_doc.iddoc
-               AND da2.attrname = ''Rok''
-               AND CAST(av2.value AS VARCHAR) = :node_name
-           )',  -- docIncludeCondition
+           'EXISTS (SELECT 1 FROM dm_attrvaluestr avs JOIN dm_doctypeattr dta ON avs.iddoctypeattr ' ||
+           '= dta.iddoctypeattr JOIN dm_docattr da_ref ON dta.iddocattr = da_ref.iddocattr WHERE avs.iddoc = d.iddoc ' ||
+           'AND da_ref.attrname = ''Zakaznik'' AND avs.value IS NOT NULL) AND EXISTS (SELECT 1 FROM dm_attrvaluelong avl' ||
+           ' JOIN dm_doctypeattr dta2 ON avl.iddoctypeattr = dta2.iddoctypeattr JOIN dm_docattr da2_ref ON dta2.iddocattr' ||
+           ' = da2_ref.iddocattr WHERE avl.iddoc = d.iddoc AND da2_ref.attrname = ''Rok'' AND avl.value IS NOT NULL)',  -- docIncludeCondition
            'SELECT DISTINCT CAST(av.value AS VARCHAR)
     FROM dm_attrvaluelong av
     JOIN dm_doctypeattr dta ON av.iddoctypeattr = dta.iddoctypeattr

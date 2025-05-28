@@ -1,16 +1,10 @@
-insert into dm_doctype values ( '1','faktura', 'SELECT
-    dt.name as doctype_name,
-    da.value as zakaznik_value
-FROM dm_doctype dt
-JOIN dm_doctypeattr dta ON dt.id = dta.doctype_id
-JOIN dm_docattr da ON dta.attr_id = da.id
-WHERE da.name = ''Zakaznik''
-ORDER BY dt.id;');
+insert into dm_doctype (iddoctype, doctypename, docnamescript) values (1, 'faktura',
+                                                                       'SELECT ''Faktura-'' || ? || ''-'' || ?');
 insert into dm_doctype values ( '2','zapis_z_jednani', 'ZapisJednaniScriptDOPLNIT');
 insert into dm_doctype values ( '3','projektova_dokumentace', 'ProjektovaDokumentaceScriptDOPLNIT');
 
 insert into dm_docattr values ('1','Zakaznik', 'string');
-insert into dm_docattr values ('2','Rok', 'int');
+insert into dm_docattr values ('2','Rok', 'long');
 insert into dm_docattr values ('3','Projekt', 'string');
 insert into dm_docattr values ('4','Subsystem', 'string');
 insert into dm_docattr values ('5','Datum_splatnosti', 'date');
