@@ -1,5 +1,10 @@
 package ruzicka.creators;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.List;
 
 /**
@@ -13,12 +18,11 @@ public class TypeCreator {
     private static final String DB_PASSWORD = "44DM5";
 
     //----Database connection---------------------------------------------------------------------------------------------
-    public java.sql.Connection getConnection() throws java.sql.SQLException {
-        return java.sql.DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+    public Connection getConnection() throws SQLException {
+        return DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
     }
 
     //----Type creation----------------------------------------------------------------------------------------------------
-
     /**
      * creates a new type in the database. checks if the relevant attributes are there and if the type doesnt aleeady exist
      *
@@ -27,103 +31,104 @@ public class TypeCreator {
      * @param attributeNames list of attribute names for the new type
      * @param isRequired list of booleans indicating if the attributes are required
      */
-
     public void createType(String typeName, String nameScript, List<String> attributeNames, List<Boolean> isRequired) {
         if (attributeNames.size() != isRequired.size()) {
             throw new IllegalArgumentException("The number of attributes must match the number of required flags");
         }
 
         String checkTypeSql = "SELECT COUNT(*) FROM dm_doctype WHERE doctypename = ?";
+        // Corrected SQL: dm_doctypeattr.iddocattr should be iddocattr from dm_docattr
         String checkAttrSql = "SELECT COUNT(*) FROM dm_docattr WHERE attrname = ?";
         String insertTypeSql = "INSERT INTO dm_doctype (doctypename, docnamescript) VALUES (?, ?) RETURNING iddoctype";
+        // Corrected SQL: subselect should be for dm_docattr.iddocattr based on attrname
         String insertDoctypeattrSql = "INSERT INTO dm_doctypeattr (iddoctype, iddocattr, isrequired) VALUES (?, " +
-                "(SELECT dm_doctypeattr.iddocattr FROM dm_docattr WHERE attrname = ?), ?)";
+                "(SELECT da.iddocattr FROM dm_docattr da WHERE da.attrname = ?), ?)";
 
-        try (java.sql.Connection conn = getConnection()) {
-            // Start transaction
+
+        Connection conn = null;
+        try {
+            conn = getConnection();
             conn.setAutoCommit(false);
-            try {
+
+            try (PreparedStatement checkTypeStmt = conn.prepareStatement(checkTypeSql);
+                 PreparedStatement checkAttrStmt = conn.prepareStatement(checkAttrSql);
+                 PreparedStatement insertTypeStmt = conn.prepareStatement(insertTypeSql);
+                 PreparedStatement insertDoctypeattrStmt = conn.prepareStatement(insertDoctypeattrSql)) {
+
                 // Check if the type already exists
-                try (var checkTypeStmt = conn.prepareStatement(checkTypeSql)) {
-                    checkTypeStmt.setString(1, typeName);
-                    try (var rs = checkTypeStmt.executeQuery()) {
-                        if (rs.next() && rs.getInt(1) > 0) {
-                            throw new IllegalArgumentException("Type already exists with name: " + typeName);
-                        }
+                checkTypeStmt.setString(1, typeName);
+                try (ResultSet rs = checkTypeStmt.executeQuery()) {
+                    if (rs.next() && rs.getInt(1) > 0) {
+                        throw new IllegalArgumentException("Type already exists with name: " + typeName);
                     }
                 }
 
                 // Check if all attributes exist
-                try (var checkAttrStmt = conn.prepareStatement(checkAttrSql)) {
-                    for (String attrName : attributeNames) {
-                        checkAttrStmt.setString(1, attrName);
-                        try (var rs = checkAttrStmt.executeQuery()) {
-                            if (!rs.next() || rs.getInt(1) == 0) {
-                                throw new IllegalArgumentException("Attribute does not exist: " + attrName);
-                            }
+                for (String attrName : attributeNames) {
+                    checkAttrStmt.setString(1, attrName);
+                    try (ResultSet rs = checkAttrStmt.executeQuery()) {
+                        if (!rs.next() || rs.getInt(1) == 0) {
+                            throw new IllegalArgumentException("Attribute does not exist: " + attrName);
                         }
                     }
                 }
 
                 // Insert a new type and get its ID
                 int doctypeId;
-                try (var insertTypeStmt = conn.prepareStatement(insertTypeSql)) {
-                    insertTypeStmt.setString(1, typeName);
-                    insertTypeStmt.setString(2, nameScript);
-                    try (var rs = insertTypeStmt.executeQuery()) {
-                        if (!rs.next()) {
-                            throw new RuntimeException("Failed to create new type");
-                        }
-                        doctypeId = rs.getInt(1);
+                insertTypeStmt.setString(1, typeName);
+                insertTypeStmt.setString(2, nameScript);
+                try (ResultSet rs = insertTypeStmt.executeQuery()) {
+                    if (!rs.next()) {
+                        throw new RuntimeException("Failed to create new type, no ID returned.");
                     }
+                    doctypeId = rs.getInt(1);
                 }
 
                 // Create connections between type and attributes
-                try (var insertDoctypeattrStmt = conn.prepareStatement(insertDoctypeattrSql)) {
-                    for (int i = 0; i < attributeNames.size(); i++) {
-                        insertDoctypeattrStmt.setInt(1, doctypeId);
-                        insertDoctypeattrStmt.setString(2, attributeNames.get(i));
-                        insertDoctypeattrStmt.setBoolean(3, isRequired.get(i));
-                        insertDoctypeattrStmt.executeUpdate();
-                    }
+                for (int i = 0; i < attributeNames.size(); i++) {
+                    insertDoctypeattrStmt.setInt(1, doctypeId);
+                    insertDoctypeattrStmt.setString(2, attributeNames.get(i));
+                    insertDoctypeattrStmt.setBoolean(3, isRequired.get(i));
+                    insertDoctypeattrStmt.addBatch(); // Batching for potentially better performance
                 }
+                insertDoctypeattrStmt.executeBatch();
 
-                // Commit transaction
                 conn.commit();
-            } catch (Exception e) {
-                conn.rollback();
-                throw e;
-            } finally {
-                conn.setAutoCommit(true);
+            } catch (SQLException e) { // Catch SQLException specifically for rollback
+                if (conn != null) conn.rollback(); // Rollback on SQL error
+                throw new RuntimeException("Error during type creation transaction.", e);
+            } catch (Exception e) { // Catch other exceptions (like IllegalArgumentException)
+                if (conn != null) conn.rollback(); // Rollback on any other error during transaction
+                throw e; // Re-throw other exceptions
             }
-        } catch (java.sql.SQLException e) {
-            throw new RuntimeException("Error creating type in database.", e);
+
+        } catch (SQLException e) { // Catch connection-level SQLException
+            throw new RuntimeException("Database connection error or outer transaction error.", e);
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(true); // Reset auto-commit
+                    conn.close();
+                } catch (SQLException e) {
+                    // log error on close
+                }
+            }
         }
     }
     //----Type delete-----------------------------------------------------------------------------------------------------
-
-    /**
-     * Deletes a type from the database. Checks if the type exists and if it is used in any document before deleting it.
-     *
-     * @param typeName name of the type to be deleted
-     *
-     * @throws IllegalArgumentException if the type does not exist or is used in documents
-     * @throws RuntimeException         if there is an error during the database operation
-     */
-
     public void deleteType(String typeName) {
         String checkSql = "SELECT COUNT(*) FROM dm_doctype WHERE doctypename = ?";
         String deleteSql = "DELETE FROM dm_doctype WHERE doctypename = ?";
         String checkUsageSql = "SELECT COUNT(*) FROM dm_doc WHERE iddoctype = (SELECT iddoctype FROM dm_doctype WHERE doctypename = ?)";
 
-        try (java.sql.Connection conn = getConnection();
-             var checkStmt = conn.prepareStatement(checkSql);
-             var checkUsageStmt = conn.prepareStatement(checkUsageSql);
-             var deleteStmt = conn.prepareStatement(deleteSql)) {
+        try (Connection conn = getConnection();
+             PreparedStatement checkStmt = conn.prepareStatement(checkSql);
+             PreparedStatement checkUsageStmt = conn.prepareStatement(checkUsageSql);
+             PreparedStatement deleteStmt = conn.prepareStatement(deleteSql)) {
 
             // Check if the type exists
             checkStmt.setString(1, typeName);
-            try (var rs = checkStmt.executeQuery()) {
+            try (ResultSet rs = checkStmt.executeQuery()) {
                 if (rs.next() && rs.getInt(1) == 0) {
                     throw new IllegalArgumentException("Type does not exist with name: " + typeName);
                 }
@@ -131,60 +136,69 @@ public class TypeCreator {
 
             // Check if the type is used in any document
             checkUsageStmt.setString(1, typeName);
-            try (var rs = checkUsageStmt.executeQuery()) {
+            try (ResultSet rs = checkUsageStmt.executeQuery()) {
                 if (rs.next() && rs.getInt(1) > 0) {
                     throw new IllegalArgumentException("Type is used in documents and cannot be deleted: " + typeName);
                 }
             }
 
-            // If it exists and is not used, delete the type
             deleteStmt.setString(1, typeName);
-            deleteStmt.executeUpdate();
+            int affectedRows = deleteStmt.executeUpdate();
+            if (affectedRows == 0) {
+                // This might happen if type was deleted between check and delete, or if initial check was flawed.
+                // Or simply, type name didn't match for delete for some reason.
+                System.err.println("Warning: deleteType operation for '" + typeName + "' affected 0 rows, though it was expected to exist.");
+            }
 
-        } catch (java.sql.SQLException e) {
+        } catch (SQLException e) {
             throw new RuntimeException("Error deleting type from database.", e);
         }
     }
     //----Type change-----------------------------------------------------------------------------------------------------
-
-    /**
-     * Changes the name and type of an existing type in the database.
-     *
-     * @param typeName name of the type to be changed
-     * @param nameScript name script for the new type
-     * @param attributeNames list of attribute names for the new type
-     * @param isRequired list of booleans indicating if the attributes are required
-     */
-
     public void changeType(String typeName, String nameScript, List<String> attributeNames, List<Boolean> isRequired) {
         // Query to find the highest version number for the type
-        String versionQuery = "SELECT doctypename FROM dm_doctype WHERE doctypename LIKE ? || 'version%' ORDER BY doctypename DESC LIMIT 1";
+        // Using LIKE for versioning can be tricky if typeName itself contains "version".
+        // A more robust versioning might use a dedicated version column or a clearer naming pattern.
+        String versionQuery = "SELECT doctypename FROM dm_doctype WHERE doctypename LIKE ? || 'ver%' ORDER BY doctypename DESC LIMIT 1";
+        String originalTypeCheckSql = "SELECT COUNT(*) FROM dm_doctype WHERE doctypename = ?";
 
-        try (java.sql.Connection conn = getConnection();
-             var versionStmt = conn.prepareStatement(versionQuery)) {
+
+        try (Connection conn = getConnection();
+             PreparedStatement versionStmt = conn.prepareStatement(versionQuery);
+             PreparedStatement originalCheckStmt = conn.prepareStatement(originalTypeCheckSql)) {
+
+            // Check if original type exists
+            originalCheckStmt.setString(1, typeName);
+            try (ResultSet rs = originalCheckStmt.executeQuery()) {
+                if (!rs.next() || rs.getInt(1) == 0) {
+                    throw new IllegalArgumentException("Original type '" + typeName + "' does not exist. Cannot change it.");
+                }
+            }
 
             versionStmt.setString(1, typeName);
             int version = 1;
 
-            try (var rs = versionStmt.executeQuery()) {
+            try (ResultSet rs = versionStmt.executeQuery()) {
                 if (rs.next()) {
                     String lastVersion = rs.getString(1);
-                    // Extract version number from the last version
                     try {
-                        String versionStr = lastVersion.substring(lastVersion.lastIndexOf("version") + 7);
+                        // Assuming "ver" prefix for version part
+                        String versionStr = lastVersion.substring(typeName.length() + "ver".length());
                         version = Integer.parseInt(versionStr) + 1;
                     } catch (NumberFormatException | IndexOutOfBoundsException e) {
-                        // If parsing fails, start with version 1
-                        version = 1;
+                        System.err.println("Could not parse version from '" + lastVersion + "', defaulting to version 1. Error: " + e.getMessage());
+                        version = 1; // Fallback if parsing fails
                     }
                 }
             }
 
-            // Create a new type with version + number
             String newTypeName = typeName + "ver" + version;
+            // Call createType which handles its own transaction
             createType(newTypeName, nameScript, attributeNames, isRequired);
+            System.out.println("Type '" + typeName + "' changed. New version created as '" + newTypeName + "'.");
 
-        } catch (java.sql.SQLException e) {
+
+        } catch (SQLException e) {
             throw new RuntimeException("Error changing type in database.", e);
         }
     }

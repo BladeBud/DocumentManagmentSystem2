@@ -1,57 +1,71 @@
 package ruzicka;
 
+import ruzicka.handlers.DocHandler; // Changed from DocCreator
+import java.sql.Blob; // Keep for Blob docContent = null;
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * @author Adam
  * @since 2025-04-15
  */
-
-import ruzicka.creators.DocCreator;
-
-import java.sql.Blob;
-import java.util.Arrays;
-import java.util.List;
-
 public class Main {
     public static void main(String[] args) {
-        DocCreator docCreator = new DocCreator();
+        // Use DocHandler which internally uses DocCreator and manages tree logic
+        DocHandler docHandler = new DocHandler();
 
-        // Common document properties
-        Integer docTypeId = 1;
+        Integer docTypeId = 1; // 'faktura'
         String docFormat = "pdf";
+        Blob docContent = null; // dm_doccontent.doccontent must be nullable
 
-
+        // Document 1
         List<String> attrNames1 = Arrays.asList("Zakaznik", "Rok");
         List<String> attrValues1 = Arrays.asList("aaa", "2019");
-        List<String> attrTypes1 = Arrays.asList("string", "long");
+        List<String> attrTypes1 = Arrays.asList("string", "long"); // Rok is 'long'
 
-
+        // Document 2
         List<String> attrNames2 = Arrays.asList("Zakaznik", "Rok");
         List<String> attrValues2 = Arrays.asList("bbb", "2025");
         List<String> attrTypes2 = Arrays.asList("string", "long");
 
 
         List<String> attrNames3 = Arrays.asList("Zakaznik", "Rok");
-        List<String> attrValues3 = Arrays.asList("", "2025");
+        List<String> attrValues3 = Arrays.asList("", "2025"); // Empty string for Zakaznik
         List<String> attrTypes3 = Arrays.asList("string", "long");
 
+        // Document 4
+        List<String> attrNames4 = Arrays.asList("Zakaznik", "Rok");
+        List<String> attrValues4 = Arrays.asList("ccc", "2019");
+        List<String> attrTypes4 = Arrays.asList("string", "long");
+
+
         try {
-            Blob docContent = null;
-
-            long doc1Id = docCreator.createDocument(docTypeId, docContent, docFormat,
+            System.out.println("Attempting to add Document 1 (aaa, 2019)...");
+            docHandler.addDocument(docTypeId, docContent, docFormat,
                     attrValues1, attrNames1, attrTypes1);
-            System.out.println("Created document in aaa folder with ID: " + doc1Id);
+            System.out.println("---- Finished processing Document 1 ----\n");
 
-            long doc2Id = docCreator.createDocument(docTypeId, docContent, docFormat,
+            System.out.println("Attempting to add Document 2 (bbb, 2025)...");
+            docHandler.addDocument(docTypeId, docContent, docFormat,
                     attrValues2, attrNames2, attrTypes2);
-            System.out.println("Created document in bbb2025 folder with ID: " + doc2Id);
+            System.out.println("---- Finished processing Document 2 ----\n");
 
-            long doc3Id = docCreator.createDocument(docTypeId, docContent, docFormat,
+            System.out.println("Attempting to add Document 3 (EMPTY, 2025)...");
+            docHandler.addDocument(docTypeId, docContent, docFormat,
                     attrValues3, attrNames3, attrTypes3);
-            System.out.println("Created document in root folder with ID: " + doc3Id);
+            System.out.println("---- Finished processing Document 3 ----\n");
+
+            System.out.println("Attempting to add Document 4 (ccc, 2019)...");
+            docHandler.addDocument(docTypeId, docContent, docFormat,
+                    attrValues4, attrNames4, attrTypes4);
+            System.out.println("---- Finished processing Document 4 ----\n");
+
 
         } catch (Exception e) {
-            System.err.println("Error creating documents: " + e.getMessage());
+            System.err.println("=====================================");
+            System.err.println("TOP LEVEL ERROR in Main: " + e.getMessage());
             e.printStackTrace();
+            System.err.println("=====================================");
         }
     }
 }
