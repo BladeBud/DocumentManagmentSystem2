@@ -11,7 +11,7 @@ import java.util.List;
  */
 public class Main {
     public static void main(String[] args) {
-        // Use DocHandler which internally uses DocCreator and manages tree logic
+        //--------------------------------------------------------------------------------------------------------------
         DocHandler docHandler = new DocHandler();
 
         Integer docTypeId = 1; // 'faktura'
@@ -35,7 +35,7 @@ public class Main {
 
         // Document 4
         List<String> attrNames4 = Arrays.asList("Zakaznik", "Rok");
-        List<String> attrValues4 = Arrays.asList("ccc", "2019");
+        List<String> attrValues4 = Arrays.asList("ccc", "2020"); //ccc and EMPTY for Rok causes an error -
         List<String> attrTypes4 = Arrays.asList("string", "long");
 
 
@@ -55,7 +55,7 @@ public class Main {
                     attrValues3, attrNames3, attrTypes3);
             System.out.println("---- Finished processing Document 3 ----\n");
 
-            System.out.println("Attempting to add Document 4 (ccc, 2019)...");
+            System.out.println("Attempting to add Document 4 (ccc, 2020)...");
             docHandler.addDocument(docTypeId, docContent, docFormat,
                     attrValues4, attrNames4, attrTypes4);
             System.out.println("---- Finished processing Document 4 ----\n");

@@ -20,6 +20,7 @@ import java.util.Map;
  * @since 2025-04-28
  */
 public class DocHandler {
+    //----Database connection parameters--------------------------------------------------------------------------------
     private static final String DB_URL = "jdbc:postgresql://localhost:5432/DMSdb";
     private static final String DB_USER = "bladebud";
     private static final String DB_PASSWORD = "44DM5";
@@ -31,11 +32,22 @@ public class DocHandler {
         this.dbManager = new DatabaseManager();
         this.docCreator = new DocCreator();
     }
-
+    //----Database connection-------------------------------------------------------------------------------------------
     public Connection getConnection() throws SQLException {
         return DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
     }
-
+//----Document operations-----------------------------------------------------------------------------------------------
+    //----Document addition---------------------------------------------------------------------------------------------
+    /**
+     * Adds a document to the database and processes it for all trees.
+     *
+     * @param idDocType      The type ID of the document.
+     * @param docContent     The content of the document as a Blob.
+     * @param docFormat      The format of the document (e.g., PDF, DOCX).
+     * @param docAttrValues  List of attribute values for the document.
+     * @param docAttrNames   List of attribute names corresponding to the values.
+     * @param attrTypes      List of attribute types corresponding to the names.
+     */
     public void addDocument(Integer idDocType, Blob docContent, String docFormat,
                             List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
         Connection conn = null;
@@ -86,13 +98,24 @@ public class DocHandler {
             }
         }
     }
-
+    //----proccessDocumentForTree---------------------------------------------------------------------------------------
+    /**
+     * Processes a document for a specific tree, placing it in the appropriate node based on its attributes.
+     *
+     * @param conn          The database connection.
+     * @param idDoc         The ID of the document to process.
+     * @param treeId        The ID of the tree to process the document for.
+     * @param attributeMap  A map of document attributes to their values.
+     * @param idDocType     The type ID of the document.
+     * @throws SQLException If an SQL error occurs during processing.
+     */
     private void processDocumentForTree(Connection conn, long idDoc, int treeId,
                                         Map<String, String> attributeMap, int idDocType) throws SQLException {
         ArrayTree arrayTree = new ArrayTree();
         byte[] treeContentBytes = dbManager.getTreeContent(conn, treeId);
         int nextFreeIxForTree = dbManager.getTreeNextFreeNodeIndex(conn, treeId);
 
+        // If treeContentBytes is null or empty, we initialize a new ArrayTree.
         if (treeContentBytes != null && treeContentBytes.length > 0) {
             System.out.println("Loading ArrayTree for tree " + treeId + " from " + treeContentBytes.length + " bytes.");
             arrayTree.fromByteArray(treeContentBytes);
@@ -101,8 +124,7 @@ public class DocHandler {
             System.out.println("Initializing new ArrayTree for tree " + treeId);
             arrayTree.initArrayTree();
             if (arrayTree.getNode(0) != null && arrayTree.getNode(0).idNodeName == 0) {
-                // Ensure root has a name. The name "Root" is conventional.
-                // If your dm_deftreenode for root uses a script like 'SELECT ''SpecificRootName''', that would be better.
+                // Ensure root has a name.
                 String rootDefNodeName = getStaticNodeNameFromScript(conn, treeId, 0); // Helper to get root name
                 if (rootDefNodeName == null) rootDefNodeName = "RootTree" + treeId; // Fallback
 
@@ -141,10 +163,14 @@ public class DocHandler {
         docFinalNode.docCount++;
         System.out.println("Linked doc " + idDoc + " to XPath ID " + docFinalNode.idNodeXPath + ". Node " + finalNodeIdInArrayTree + " docCount: " + docFinalNode.docCount);
 
+        // finalNodeIdInArrayTree is the 'ixnode' for dm_docnode
+        dbManager.insertDocNode(conn, idDoc, finalNodeIdInArrayTree, treeId);
+        System.out.println("Inserted record into dm_docnode: (idDoc=" + idDoc + ", ixNode=" + finalNodeIdInArrayTree + ", idTree=" + treeId + ")");
+
         dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex());
         System.out.println("Updated tree " + treeId + " content in database. NextFreeIndex: " + arrayTree.getNextFreeIndex());
     }
-
+//----Helper methods-----------------------------------------------------------------------------------------------
     private int getRootDefTreeNodeId(Connection conn, int treeId) throws SQLException {
         String findRootDefSql = "SELECT iddeftreenode FROM dm_deftreenode WHERE idtree = ? AND iddefparenttreenode = 0";
         try (PreparedStatement ps = conn.prepareStatement(findRootDefSql)) {
@@ -352,11 +378,9 @@ public class DocHandler {
                     System.err.println("WARN: Def " + defId + ": DB nodeNameScript has " + paramCount +
                             " parameters. Current logic only binds idDoc for single-parameter scripts. " +
                             "Script: [" + nodeNameScriptFromDB + "]");
-                    // You might throw an error here or attempt a default binding if applicable.
-                    // For now, it will proceed and likely fail if other params are unbound.
                 }
             } else {
-                // Script has no parameters, assume it's static (e.g., SELECT 'Root')
+                // Script has no parameters, assume it's static (e.g., 'Root')
                 System.out.println("Def " + defId + ": DB script has no parameters, executing as static.");
             }
 
@@ -370,10 +394,8 @@ public class DocHandler {
                     System.out.println("Def " + defId + ": DB script yielded node name: '" + nodeName + "' for doc " + idDoc);
                     return nodeName;
                 } else {
-                    // This means the script (e.g., for Zakaznik or Rok for this idDoc) returned no rows.
                     // This is a valid scenario if the document doesn't have that attribute value,
-                    // or if the attribute value is empty and your DB query for attributes filters out empty/nulls.
-                    System.out.println("Def " + defId + ": DB script executed but returned no rows for doc " + idDoc + ". This means no specific node name for this doc at this level (e.g., doc lacks the 'Zakaznik' or 'Rok' attribute value).");
+                    System.out.println("Def " + defId + ": DB script executed but returned no rows for doc " + idDoc + ". This means no specific node name for this doc at this level (doc lacks the 'Zakaznik' or other attribute value).");
                     return null;
                 }
             }

@@ -42,6 +42,25 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Inserts a record into DM_DocNode, linking a document to a specific node index within a tree.
+     *
+     * @param conn    The database connection
+     * @param idDoc   The document ID
+     * @param ixNode  The index of the node in the ArrayTree for this tree instance
+     * @param idTree  The tree ID
+     * @throws SQLException
+     */
+    public void insertDocNode(Connection conn, long idDoc, int ixNode, int idTree) throws SQLException {
+        String sql = "INSERT INTO dm_docnode (iddoc, ixnode, idtree) VALUES (?, ?, ?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, idDoc);
+            ps.setInt(2, ixNode); // This is the finalNodeIdInArrayTree
+            ps.setInt(3, idTree);
+            ps.executeUpdate();
+        }
+    }
+
     public String getNodeNameById(Connection conn, long idNodeName) throws SQLException {
         String selectSql = "SELECT nodename FROM dm_nodename WHERE idnodename = ?";
         try (PreparedStatement pstmt = conn.prepareStatement(selectSql)) {
