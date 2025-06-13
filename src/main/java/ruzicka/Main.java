@@ -25,7 +25,7 @@ public class Main {
 
         // Document 2
         List<String> attrNames2 = Arrays.asList("Zakaznik", "Rok");
-        List<String> attrValues2 = Arrays.asList("bbb", "2025");
+        List<String> attrValues2 = Arrays.asList("aaa", "2025");
         List<String> attrTypes2 = Arrays.asList("string", "long");
 
 
@@ -35,9 +35,9 @@ public class Main {
 
         // Document 4
         List<String> attrNames4 = Arrays.asList("Zakaznik", "Rok");
-        List<String> attrValues4 = Arrays.asList("ccc", "2020"); //ccc and EMPTY for Rok causes an error -
+        List<String> attrValues4 = Arrays.asList("ccc", ""); //ccc and EMPTY for Rok causes an error
         List<String> attrTypes4 = Arrays.asList("string", "long");
-
+//---------------------------------------------------------------------------------------------------------------
 
         try {
             System.out.println("Attempting to add Document 1 (aaa, 2019)...");
@@ -45,7 +45,7 @@ public class Main {
                     attrValues1, attrNames1, attrTypes1);
             System.out.println("---- Finished processing Document 1 ----\n");
 
-            System.out.println("Attempting to add Document 2 (bbb, 2025)...");
+            System.out.println("Attempting to add Document 2 (aaa, 2025)...");
             docHandler.addDocument(docTypeId, docContent, docFormat,
                     attrValues2, attrNames2, attrTypes2);
             System.out.println("---- Finished processing Document 2 ----\n");
@@ -55,7 +55,7 @@ public class Main {
                     attrValues3, attrNames3, attrTypes3);
             System.out.println("---- Finished processing Document 3 ----\n");
 
-            System.out.println("Attempting to add Document 4 (ccc, 2020)...");
+            System.out.println("Attempting to add Document 4 (ccc, EMPTY)...");
             docHandler.addDocument(docTypeId, docContent, docFormat,
                     attrValues4, attrNames4, attrTypes4);
             System.out.println("---- Finished processing Document 4 ----\n");

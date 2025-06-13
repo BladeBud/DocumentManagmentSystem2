@@ -209,18 +209,18 @@ public class DocHandler {
 
 
     private int placeDocumentInTreeRecursive(Connection conn, ArrayTree arrayTree,
-                                             int currentDefTreeNodeId, int currentParentArrayNodeId,
+                                             int currentDefTreeNodeId, int currentParentArrayNodeIdInTree, // Renamed for clarity
                                              long idDoc, Map<String, String> attributeMap, int treeId) throws SQLException {
 
         // 1. Get definition details: nodeNameScript and docIncludeCondition
         String defDetailsSql = "SELECT nodenamescript, docincludecondition FROM dm_deftreenode WHERE iddeftreenode = ?";
-        String nodeNameScript = null;
+        String nodeNameScriptFromDB = null; // Renamed for clarity
         String docIncludeCondition = null;
         try (PreparedStatement ps = conn.prepareStatement(defDetailsSql)) {
             ps.setInt(1, currentDefTreeNodeId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    nodeNameScript = rs.getString("nodenamescript");
+                    nodeNameScriptFromDB = rs.getString("nodenamescript");
                     docIncludeCondition = rs.getString("docincludecondition");
                 } else {
                     throw new SQLException("Definition node not found by iddeftreenode: " + currentDefTreeNodeId);
@@ -228,73 +228,67 @@ public class DocHandler {
             }
         }
 
-        // 2. Determine the actual node name for THIS DOCUMENT at THIS LEVEL
-        // This uses the nodeNameScript to figure out *which attribute* of the document defines the name here.
-        String actualNodeNameForThisDoc = getNodeNameForDocumentAtLevel(conn, nodeNameScript, attributeMap, idDoc, currentDefTreeNodeId);
+        // 2. Determine the actual node name for THIS DOCUMENT at THIS LEVEL,
+        //    and find/create the corresponding ArrayTree node.
+        String actualNodeNameForThisDoc = getNodeNameForDocumentAtLevel(conn, nodeNameScriptFromDB, attributeMap, idDoc, currentDefTreeNodeId);
 
-        int nextLevelParentArrayNodeId = currentParentArrayNodeId; // By default, stay at current parent
+        // This is the ArrayTree node corresponding to the current definition level (currentDefTreeNodeId).
+        // It's created under currentParentArrayNodeIdInTree.
+        int arrayNodeForCurrentDef = currentParentArrayNodeIdInTree; // Default: if no name, children are processed under the parent.
 
         if (actualNodeNameForThisDoc != null && !actualNodeNameForThisDoc.isEmpty()) {
             long idNodeName = dbManager.saveNodeName(conn, actualNodeNameForThisDoc);
-            // Find or create this node in ArrayTree under currentParentArrayNodeId
             int existingNodeInArrayTree = -1;
-            for (int i = 0; i < arrayTree.getMaxNodes(); i++) { // Search existing nodes
+            for (int i = 0; i < arrayTree.getMaxNodes(); i++) {
                 ArrayTree.TreeNode node = arrayTree.getNode(i);
-                if (node != null && node.parentId == currentParentArrayNodeId && node.idNodeName == idNodeName) {
+                if (node != null && node.parentId == currentParentArrayNodeIdInTree && node.idNodeName == idNodeName) {
                     existingNodeInArrayTree = i;
                     break;
                 }
             }
-
-            if (existingNodeInArrayTree == -1) { // Node doesn't exist, create it
-                nextLevelParentArrayNodeId = arrayTree.insertNode(currentParentArrayNodeId, idNodeName, 0);
-                System.out.println("Inserted new ArrayTree node: " + nextLevelParentArrayNodeId + " (name: '" + actualNodeNameForThisDoc + "') under parent " + currentParentArrayNodeId + " (for def " + currentDefTreeNodeId + ")");
-            } else { // Node already exists
-                nextLevelParentArrayNodeId = existingNodeInArrayTree;
-                System.out.println("Found existing ArrayTree node: " + nextLevelParentArrayNodeId + " (name: '" + actualNodeNameForThisDoc + "') under parent " + currentParentArrayNodeId + " (for def " + currentDefTreeNodeId + ")");
+            if (existingNodeInArrayTree == -1) {
+                arrayNodeForCurrentDef = arrayTree.insertNode(currentParentArrayNodeIdInTree, idNodeName, 0);
+                System.out.println("Inserted new ArrayTree node: " + arrayNodeForCurrentDef + " (name: '" + actualNodeNameForThisDoc + "') under parent " + currentParentArrayNodeIdInTree + " (for def " + currentDefTreeNodeId + ")");
+            } else {
+                arrayNodeForCurrentDef = existingNodeInArrayTree;
+                System.out.println("Found existing ArrayTree node: " + arrayNodeForCurrentDef + " (name: '" + actualNodeNameForThisDoc + "') under parent " + currentParentArrayNodeIdInTree + " (for def " + currentDefTreeNodeId + ")");
             }
         } else {
-            // The document does not define a specific sub-node name at this level (e.g., missing attribute)
-            // OR this definition level is for a static grouping node (e.g., 'SELECT ''Customers''').
-            // If nodeNameScript was 'SELECT ''Customers''', actualNodeNameForThisDoc would be "Customers".
-            // If nodeNameScript was to get 'Zakaznik' but doc has no 'Zakaznik', it's null.
-            // In this case, nextLevelParentArrayNodeId remains currentParentArrayNodeId for child definitions,
-            // UNLESS this level itself is a static node that needs to be created.
-            if (nodeNameScript != null && nodeNameScript.toLowerCase().startsWith("select '")) { // Static node name
+            // Handle static node names from script if actualNodeNameForThisDoc was null
+            if (nodeNameScriptFromDB != null && nodeNameScriptFromDB.toLowerCase().startsWith("select '")) {
                 String staticName = null;
-                try (PreparedStatement psStatic = conn.prepareStatement(nodeNameScript)) {
+                try (PreparedStatement psStatic = conn.prepareStatement(nodeNameScriptFromDB)) {
                     try(ResultSet rsStatic = psStatic.executeQuery()){ if(rsStatic.next()) staticName = rsStatic.getString(1); }
-                } catch (SQLException e) { System.err.println("Could not eval static script " + nodeNameScript + ": " + e.getMessage());}
+                } catch (SQLException e) { System.err.println("Could not eval static script " + nodeNameScriptFromDB + ": " + e.getMessage());}
 
                 if (staticName != null && !staticName.isEmpty()) {
                     long idStaticNodeName = dbManager.saveNodeName(conn, staticName);
                     int existingStaticNode = -1;
                     for(int i=0; i < arrayTree.getMaxNodes(); i++){
                         ArrayTree.TreeNode node = arrayTree.getNode(i);
-                        if(node != null && node.parentId == currentParentArrayNodeId && node.idNodeName == idStaticNodeName){
+                        if(node != null && node.parentId == currentParentArrayNodeIdInTree && node.idNodeName == idStaticNodeName){
                             existingStaticNode = i; break;
                         }
                     }
                     if(existingStaticNode == -1){
-                        nextLevelParentArrayNodeId = arrayTree.insertNode(currentParentArrayNodeId, idStaticNodeName, 0);
-                        System.out.println("Inserted new STATIC ArrayTree node: " + nextLevelParentArrayNodeId + " (name: '" + staticName + "') under parent " + currentParentArrayNodeId);
+                        arrayNodeForCurrentDef = arrayTree.insertNode(currentParentArrayNodeIdInTree, idStaticNodeName, 0);
+                        System.out.println("Inserted new STATIC ArrayTree node: " + arrayNodeForCurrentDef + " (name: '" + staticName + "') under parent " + currentParentArrayNodeIdInTree);
                     } else {
-                        nextLevelParentArrayNodeId = existingStaticNode;
-                        System.out.println("Found existing STATIC ArrayTree node: " + nextLevelParentArrayNodeId + " (name: '" + staticName + "') under parent " + currentParentArrayNodeId);
+                        arrayNodeForCurrentDef = existingStaticNode;
+                        System.out.println("Found existing STATIC ArrayTree node: " + arrayNodeForCurrentDef + " (name: '" + staticName + "') under parent " + currentParentArrayNodeIdInTree);
                     }
                 } else {
-                    System.out.println("Def " + currentDefTreeNodeId + ": Doc " + idDoc + " did not yield a dynamic node name, and script is not a simple static name. Children will be considered under parent " + currentParentArrayNodeId);
+                    System.out.println("Def " + currentDefTreeNodeId + ": Doc " + idDoc + " did not yield a dynamic node name, and script is not a simple static name. Children will be considered under parent " + currentParentArrayNodeIdInTree);
+                    // arrayNodeForCurrentDef remains currentParentArrayNodeIdInTree
                 }
             } else {
-                System.out.println("Def " + currentDefTreeNodeId + ": Doc " + idDoc + " did not yield a dynamic node name. Children will be considered under parent " + currentParentArrayNodeId);
+                System.out.println("Def " + currentDefTreeNodeId + ": Doc " + idDoc + " did not yield a dynamic node name. Children will be processed under current parent array node: " + currentParentArrayNodeIdInTree);
+                // arrayNodeForCurrentDef remains currentParentArrayNodeIdInTree
             }
         }
 
-        // 3. Check if the document itself belongs AT THIS NEWLY DETERMINED NODE (nextLevelParentArrayNodeId)
-        boolean docBelongsAtThisLevelNode = checkDocIncludeCondition(conn, docIncludeCondition, idDoc, attributeMap, currentDefTreeNodeId);
-        // System.out.println("Doc " + idDoc + " include condition for def " + currentDefTreeNodeId + " (node " + nextLevelParentArrayNodeId + ") is: " + docBelongsAtThisLevelNode);
-
-        // 4. Recurse for child definitions
+        // 3. Recurse for child definitions.
+        //    The parent ArrayTree node for the next level of definitions is arrayNodeForCurrentDef.
         String childDefsSql = "SELECT iddeftreenode FROM dm_deftreenode WHERE idtree = ? AND iddefparenttreenode = ?";
         List<Integer> childDefIds = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(childDefsSql)) {
@@ -307,37 +301,36 @@ public class DocHandler {
             }
         }
 
-        int finalPlacementNodeId = -1; // Track if any child definition places the document
-
         if (!childDefIds.isEmpty()) {
             for (int childDefId : childDefIds) {
-                // Recursive call: the "parent" for the next level in ArrayTree is `nextLevelParentArrayNodeId`
-                int placementByChild = placeDocumentInTreeRecursive(conn, arrayTree, childDefId, nextLevelParentArrayNodeId, idDoc, attributeMap, treeId);
+                // Pass arrayNodeForCurrentDef as the parent under which children of this definition level will be created/found.
+                int placementByChild = placeDocumentInTreeRecursive(conn, arrayTree, childDefId, arrayNodeForCurrentDef, idDoc, attributeMap, treeId);
 
-                // If placementByChild is different from nextLevelParentArrayNodeId, it means the document
-                // was placed deeper by that child definition.
-                if (placementByChild != nextLevelParentArrayNodeId) {
-                    finalPlacementNodeId = placementByChild; // Document taken by a child path
-                    break; // Assuming first child path that takes the document wins. Adjust if not.
+                // If the recursive call placed the document in a node *different* from arrayNodeForCurrentDef,
+                // it means the document went deeper down that child's path.
+                // That deeper placement takes precedence.
+                if (placementByChild != arrayNodeForCurrentDef) {
+                    // System.out.println("Doc " + idDoc + " taken by child definition " + childDefId + " to node " + placementByChild);
+                    return placementByChild; // Document successfully placed by a child branch.
                 }
             }
         }
 
-        if (finalPlacementNodeId != -1) {
-            // Document was placed by a deeper child definition.
-            return finalPlacementNodeId;
+        // 4. If we reach here, no child definition placed the document deeper OR this is a leaf definition.
+        //    Now, check if the document belongs AT THIS LEVEL (arrayNodeForCurrentDef) based on its include condition.
+        boolean docBelongsAtThisDefNode = checkDocIncludeCondition(conn, docIncludeCondition, idDoc, attributeMap, currentDefTreeNodeId);
+        // System.out.println("Doc " + idDoc + " include condition for def " + currentDefTreeNodeId + " (node " + arrayNodeForCurrentDef + ") is: " + docBelongsAtThisDefNode);
+
+        if (docBelongsAtThisDefNode) {
+            // Document matches the condition for the node derived from the current definition.
+            // Since no children took it further, this is its most specific (lowest) placement.
+            System.out.println("Doc " + idDoc + " final placement at ArrayTree node " + arrayNodeForCurrentDef + " (based on def " + currentDefTreeNodeId + " and its include condition).");
+            return arrayNodeForCurrentDef;
         } else {
-            // No child definition placed the document further down.
-            // So, if the document matches the include condition for *this* level's node, it belongs here.
-            if (docBelongsAtThisLevelNode) {
-                System.out.println("Doc " + idDoc + " final placement at ArrayTree node " + nextLevelParentArrayNodeId + " (based on def " + currentDefTreeNodeId + " and its include condition).");
-                return nextLevelParentArrayNodeId;
-            } else {
-                // Document does not match this level's include condition and no children took it.
-                // This means it effectively "stays" at the parent level *before* this definition was applied.
-                // System.out.println("Doc " + idDoc + " did not match include condition for def " + currentDefTreeNodeId + " (node "+nextLevelParentArrayNodeId+") and no children took it. Effective placement remains at: " + currentParentArrayNodeId);
-                return currentParentArrayNodeId;
-            }
+            // Document does NOT match the include condition for the node derived from this definition, AND no child definition took it deeper.
+            // This means the document does not belong in this branch at or below arrayNodeForCurrentDef.
+            // System.out.println("Doc " + idDoc + " does not match include condition for def " + currentDefTreeNodeId + " (node "+arrayNodeForCurrentDef+") and no children took it. Effective placement remains at: " + currentParentArrayNodeIdInTree);
+            return currentParentArrayNodeIdInTree;
         }
     }
 
