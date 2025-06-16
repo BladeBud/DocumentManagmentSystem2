@@ -11,16 +11,16 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.HashMap; // Explicit import
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * @author Adam
- * @since 2025-04-28
+ * Handles high-level document operations, including creation, and placement within defined tree structures.
+ * It coordinates {@link DocCreator}, {@link DatabaseManager}, and {@link ArrayTree}.
  */
 public class DocHandler {
-    //----Database connection parameters--------------------------------------------------------------------------------
+
     private static final String DB_URL = "jdbc:postgresql://localhost:5432/DMSdb";
     private static final String DB_USER = "bladebud";
     private static final String DB_PASSWORD = "44DM5";
@@ -32,22 +32,11 @@ public class DocHandler {
         this.dbManager = new DatabaseManager();
         this.docCreator = new DocCreator();
     }
-    //----Database connection-------------------------------------------------------------------------------------------
+
     public Connection getConnection() throws SQLException {
         return DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
     }
-//----Document operations-----------------------------------------------------------------------------------------------
-    //----Document addition---------------------------------------------------------------------------------------------
-    /**
-     * Adds a document to the database and processes it for all trees.
-     *
-     * @param idDocType      The type ID of the document.
-     * @param docContent     The content of the document as a Blob.
-     * @param docFormat      The format of the document (e.g., PDF, DOCX).
-     * @param docAttrValues  List of attribute values for the document.
-     * @param docAttrNames   List of attribute names corresponding to the values.
-     * @param attrTypes      List of attribute types corresponding to the names.
-     */
+
     public void addDocument(Integer idDocType, Blob docContent, String docFormat,
                             List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
         Connection conn = null;
@@ -56,10 +45,11 @@ public class DocHandler {
             conn.setAutoCommit(false);
 
             long idDoc = docCreator.createDocument(idDocType, docContent, docFormat, docAttrValues, docAttrNames, attrTypes);
+            System.out.println("Successfully created document with idDoc: " + idDoc);
 
             Map<String, String> attributeMap = new HashMap<>();
             for (int i = 0; i < docAttrNames.size(); i++) {
-                if (docAttrValues.get(i) != null && !docAttrValues.get(i).isEmpty()) { // Only add non-empty attributes
+                if (docAttrValues.get(i) != null && !docAttrValues.get(i).isEmpty()) {
                     attributeMap.put(docAttrNames.get(i), docAttrValues.get(i));
                 }
             }
@@ -69,23 +59,26 @@ public class DocHandler {
                 try (ResultSet treeRs = treeStmt.executeQuery()) {
                     while (treeRs.next()) {
                         int treeId = treeRs.getInt("idtree");
-                        System.out.println("Processing document " + idDoc + " for tree " + treeId);
+                        System.out.println("--- Processing document " + idDoc + " for tree " + treeId + " ---");
                         processDocumentForTree(conn, idDoc, treeId, attributeMap, idDocType);
                     }
                 }
             }
             conn.commit();
-            System.out.println("Successfully added document " + idDoc + " and processed for trees.");
+            System.out.println("Successfully added document " + idDoc + " and processed for all applicable trees.");
+
         } catch (Exception e) {
             if (conn != null) {
                 try {
+                    System.err.println("Rolling back transaction due to error: " + e.getMessage());
                     conn.rollback();
-                    System.err.println("Transaction rolled back for document addition.");
                 } catch (SQLException ex) {
+                    System.err.println("Error during transaction rollback: " + ex.getMessage());
                     e.addSuppressed(ex);
                 }
             }
-            e.printStackTrace();
+            System.err.println("Full error during addDocument:");
+            e.printStackTrace(System.err);
             throw new RuntimeException("Failed to add document and update trees: " + e.getMessage(), e);
         } finally {
             if (conn != null) {
@@ -93,84 +86,351 @@ public class DocHandler {
                     conn.setAutoCommit(true);
                     conn.close();
                 } catch (SQLException e) {
-                    e.printStackTrace();
+                    System.err.println("Error closing connection: " + e.getMessage());
+                    e.printStackTrace(System.err);
                 }
             }
         }
     }
-    //----proccessDocumentForTree---------------------------------------------------------------------------------------
+
+
     /**
-     * Processes a document for a specific tree, placing it in the appropriate node based on its attributes.
-     *
-     * @param conn          The database connection.
-     * @param idDoc         The ID of the document to process.
-     * @param treeId        The ID of the tree to process the document for.
-     * @param attributeMap  A map of document attributes to their values.
-     * @param idDocType     The type ID of the document.
-     * @throws SQLException If an SQL error occurs during processing.
+     * Processes a single document for a specific tree by recursively placing it.
+     * @param conn Active database connection.
+     * @param idDoc ID of the document.
+     * @param treeId ID of the tree.
+     * @param attributeMap Map of the document's attributes.
+     * @param idDocType ID of the document's type.
+     * @throws SQLException If database errors occur.
      */
     private void processDocumentForTree(Connection conn, long idDoc, int treeId,
                                         Map<String, String> attributeMap, int idDocType) throws SQLException {
+
+        int rootDefNodeIdForThisTree = getRootDefTreeNodeId(conn, treeId);
+
+        if (rootDefNodeIdForThisTree == -1) {
+            System.err.println("CRITICAL: No root definition node (idDefParentTreeNode=0) found for treeId: " + treeId + ". Cannot process this tree for doc " + idDoc);
+            return;
+        }
+
+        // Load or initialize ArrayTree for this tree
         ArrayTree arrayTree = new ArrayTree();
         byte[] treeContentBytes = dbManager.getTreeContent(conn, treeId);
         int nextFreeIxForTree = dbManager.getTreeNextFreeNodeIndex(conn, treeId);
 
-        // If treeContentBytes is null or empty, we initialize a new ArrayTree.
         if (treeContentBytes != null && treeContentBytes.length > 0) {
-            System.out.println("Loading ArrayTree for tree " + treeId + " from " + treeContentBytes.length + " bytes.");
+            System.out.println("Loading ArrayTree for tree " + treeId + " from " + treeContentBytes.length + " bytes. NextFreeIndex from DB: " + nextFreeIxForTree);
             arrayTree.fromByteArray(treeContentBytes);
             arrayTree.setNextFreeIndex(nextFreeIxForTree);
         } else {
             System.out.println("Initializing new ArrayTree for tree " + treeId);
             arrayTree.initArrayTree();
-            if (arrayTree.getNode(0) != null && arrayTree.getNode(0).idNodeName == 0) {
-                // Ensure root has a name.
-                String rootDefNodeName = getStaticNodeNameFromScript(conn, treeId, 0); // Helper to get root name
-                if (rootDefNodeName == null) rootDefNodeName = "RootTree" + treeId; // Fallback
+        }
 
-                arrayTree.getNode(0).idNodeName = dbManager.saveNodeName(conn, rootDefNodeName);
-                arrayTree.getNode(0).idNodeXPath = dbManager.saveNodeXPath(conn, "/" + rootDefNodeName);
+        // Ensure ArrayTree's root node (index 0) is named according to the tree's *defined* root node's script.
+        // This makes ArrayTree[0] directly represent the conceptual root of the defined tree structure.
+        if (arrayTree.getNode(0) != null && arrayTree.getNode(0).idNodeName == 0) {
+            String rootNodeNameScript = null;
+            String rootNodeNameSql = "SELECT nodenamescript FROM dm_deftreenode WHERE iddeftreenode = ?";
+            try (PreparedStatement ps = conn.prepareStatement(rootNodeNameSql)) {
+                ps.setInt(1, rootDefNodeIdForThisTree); // Use the actual root definition ID
+                try(ResultSet rs = ps.executeQuery()){
+                    if(rs.next()) rootNodeNameScript = rs.getString(1);
+                }
+            }
+            String actualRootNodeName = getNodeNameForDocumentAtLevel(conn, rootNodeNameScript, attributeMap, idDoc, rootDefNodeIdForThisTree);
+            if (actualRootNodeName == null || actualRootNodeName.isEmpty()) {
+                actualRootNodeName = "_Tree" + treeId + "_DefinedRoot_"; // Fallback name if script yields nothing
+                System.err.println("WARN: Root definition script for tree " + treeId + " (def " + rootDefNodeIdForThisTree + ") yielded no name. Using fallback: " + actualRootNodeName);
+            }
+            arrayTree.getNode(0).idNodeName = dbManager.saveNodeName(conn, actualRootNodeName);
+            arrayTree.getNode(0).idNodeXPath = dbManager.saveNodeXPath(conn, "/" + actualRootNodeName);
+            System.out.println("Named ArrayTree physical root (index 0) for tree " + treeId + " as: " + actualRootNodeName + " (from def " + rootDefNodeIdForThisTree + ")");
+        }
+
+        // Start recursive placement.
+        // The rootDefNodeIdForThisTree corresponds to ArrayTree node 0.
+        // Children of rootDefNodeIdForThisTree will be placed as children of ArrayTree node 0.
+        System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Starting recursive placement. RootDefID: " + rootDefNodeIdForThisTree + " (corresponds to ArrayTree Node 0).");
+        int finalNodeIdInArrayTree = placeDocumentInTreeRecursive(conn, arrayTree, rootDefNodeIdForThisTree, 0, idDoc, attributeMap, treeId);
+
+        System.out.println(">>> Doc " + idDoc + ", Tree " + treeId + ": Placement result from recursion: finalNodeIdInArrayTree = " + finalNodeIdInArrayTree);
+
+        // **CRITICAL CHECK**: If finalNodeIdInArrayTree is 0, it means the document did not meet the
+        // include condition of the tree's root definition node (or any of its children).
+        // In this specific case, we might decide NOT to create dm_docnode/dm_docxpath entries,
+        // as it means the document doesn't belong in the tree's defined structure.
+        // However, if ArrayTree node 0 *is* a valid placement target (e.g. root def condition true), then proceed.
+        // The `placeDocumentInTreeRecursive` returns the parent if the current def's condition is false.
+        // So, if the root def's condition is false, it would return the parent of 0 (which is not well-defined here,
+        // conceptually "outside the tree"). The current `placeDocumentInTreeRecursive` needs to handle this.
+        // The simplest check: did the document actually land in a node *created or designated by a definition*
+        // whose include condition was met?
+
+        // If finalNodeIdInArrayTree is still 0, we need to re-check if doc *actually* belongs in node 0
+        // based on rootDefNodeIdForThisTree's own include condition.
+        if (finalNodeIdInArrayTree == 0) {
+            String rootNodeDocIncludeCondition = null;
+            String rootDefDetailsSql = "SELECT docincludecondition FROM dm_deftreenode WHERE iddeftreenode = ?";
+            try (PreparedStatement ps = conn.prepareStatement(rootDefDetailsSql)) {
+                ps.setInt(1, rootDefNodeIdForThisTree);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) rootNodeDocIncludeCondition = rs.getString("docincludecondition");
+                }
+            }
+            boolean belongsInRootNodeZero = false;
+            if (isMeaningfulCondition(rootNodeDocIncludeCondition)) {
+                belongsInRootNodeZero = checkDocIncludeCondition(conn, rootNodeDocIncludeCondition, idDoc, attributeMap, rootDefNodeIdForThisTree);
+            } else if (rootNodeDocIncludeCondition != null && rootNodeDocIncludeCondition.equalsIgnoreCase("true")) {
+                belongsInRootNodeZero = true;
+            }
+            // Special case: if root has no children and condition is null/empty, it might be a catch-all
+            else if (getChildDefIds(conn, treeId, rootDefNodeIdForThisTree).isEmpty() &&
+                    (rootNodeDocIncludeCondition == null || rootNodeDocIncludeCondition.trim().isEmpty())) {
+                belongsInRootNodeZero = true;
+            }
+
+
+            if (!belongsInRootNodeZero) {
+                System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Recursive placement resulted in ArrayTree node 0, " +
+                        "but document does not meet the include condition of root definition " + rootDefNodeIdForThisTree +
+                        ". Document is NOT considered part of this tree's defined structure.");
+                // Save ArrayTree state as it might have been modified by other documents or previous attempts.
+                dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex());
+                return; // Do not create dm_docnode or dm_docxpath
+            }
+            System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Recursive placement resulted in ArrayTree node 0, " +
+                    "and document MEETS the include condition of root definition " + rootDefNodeIdForThisTree + ".");
+        }
+
+
+        ArrayTree.TreeNode docFinalNodeInArrayTree = arrayTree.getNode(finalNodeIdInArrayTree);
+        if (docFinalNodeInArrayTree == null) { // Should be caught by the check above if finalNodeIdInArrayTree is invalid
+            System.err.println("CRITICAL: Final ArrayTree node " + finalNodeIdInArrayTree + " is null (after re-check) for tree " + treeId + ", doc " + idDoc + ". Aborting.");
+            return;
+        }
+
+        if (docFinalNodeInArrayTree.idNodeXPath == 0) {
+            String xpathStr = arrayTree.generateXpath(finalNodeIdInArrayTree, conn, this.dbManager);
+            // ... (rest of post-placement processing) ...
+            System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Generated XPath for ArrayTree node " + finalNodeIdInArrayTree + ": " + xpathStr);
+            long idNodeXPath = dbManager.saveNodeXPath(conn, xpathStr);
+            docFinalNodeInArrayTree.idNodeXPath = idNodeXPath;
+        }
+
+        dbManager.insertDocXPath(conn, idDoc, docFinalNodeInArrayTree.idNodeXPath);
+        docFinalNodeInArrayTree.docCount++;
+        System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Linked doc to XPath ID " + docFinalNodeInArrayTree.idNodeXPath + ". ArrayTree Node " + finalNodeIdInArrayTree + " docCount: " + docFinalNodeInArrayTree.docCount);
+
+        dbManager.insertDocNode(conn, idDoc, finalNodeIdInArrayTree, treeId);
+        System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Inserted into dm_docnode: (idDoc=" + idDoc + ", ixNode=" + finalNodeIdInArrayTree + ", idTree=" + treeId + ")");
+
+        dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex());
+        System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Updated DM_Tree content. NextFreeIndex for ArrayTree: " + arrayTree.getNextFreeIndex());
+    }
+
+
+    /**
+     * Recursively places a document into the ArrayTree structure.
+     * The `currentParentArrayNodeIdInTree` is the ArrayTree node that acts as the parent
+     * for any nodes created based on the `currentDefTreeNodeId`.
+     * If `currentDefTreeNodeId` is the tree's root definition, then `currentParentArrayNodeIdInTree`
+     * should be ArrayTree's physical root (index 0), and `arrayNodeForThisDefinitionLevel` will also be 0.
+     */
+    private int placeDocumentInTreeRecursive(Connection conn, ArrayTree arrayTree,
+                                             int currentDefTreeNodeId, int currentParentArrayNodeIdInTree,
+                                             long idDoc, Map<String, String> attributeMap, int treeId) throws SQLException {
+
+        // ... (Fetch nodeNameScriptFromDB and docIncludeCondition for currentDefTreeNodeId
+        String defDetailsSql = "SELECT nodenamescript, docincludecondition FROM dm_deftreenode WHERE iddeftreenode = ?";
+        String nodeNameScriptFromDB = null;
+        String docIncludeCondition = null;
+        try (PreparedStatement ps = conn.prepareStatement(defDetailsSql)) {
+            ps.setInt(1, currentDefTreeNodeId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    nodeNameScriptFromDB = rs.getString("nodenamescript");
+                    docIncludeCondition = rs.getString("docincludecondition");
+                } else {
+                    System.err.println("ERROR: Definition node " + currentDefTreeNodeId + " not found for tree " + treeId + " during recursion.");
+                    return currentParentArrayNodeIdInTree;
+                }
             }
         }
 
-        int rootDefTreeNodeId = getRootDefTreeNodeId(conn, treeId);
+        // This is the ArrayTree node that corresponds to the currentDefTreeNodeId.
+        int arrayNodeForThisDefinitionLevel;
 
-        int finalNodeIdInArrayTree = 0;
-        if (rootDefTreeNodeId != -1) {
-            System.out.println("Starting document placement from root definition node " + rootDefTreeNodeId + " for tree " + treeId);
-            // The initial parentArrayNodeId for the root definition is the ArrayTree's root (index 0)
-            finalNodeIdInArrayTree = placeDocumentInTreeRecursive(conn, arrayTree, rootDefTreeNodeId, 0, idDoc, attributeMap, treeId);
+        // If currentDefTreeNodeId is THE root definition for this tree,
+        // then its corresponding ArrayTree node is index 0.
+        if (currentDefTreeNodeId == getRootDefTreeNodeId(conn, treeId)) {
+            arrayNodeForThisDefinitionLevel = 0;
+            // Name/XPath for arrayTree.getNode(0) should have been set in processDocumentForTree
+            // System.out.println("Def " + currentDefTreeNodeId + " (Tree Root Def): Processing against ArrayTree node 0.");
         } else {
-            System.out.println("No root definition node for tree " + treeId +". Document " + idDoc + " defaults to ArrayTree node 0.");
-            finalNodeIdInArrayTree = 0; // Place in ArrayTree root if no definition
+            // For non-root definitions, determine/create an ArrayTree node under currentParentArrayNodeIdInTree.
+            String actualNodeNameForThisDoc = getNodeNameForDocumentAtLevel(conn, nodeNameScriptFromDB, attributeMap, idDoc, currentDefTreeNodeId);
+
+            if (actualNodeNameForThisDoc != null && !actualNodeNameForThisDoc.isEmpty()) {
+                long idNodeName = dbManager.saveNodeName(conn, actualNodeNameForThisDoc);
+                arrayNodeForThisDefinitionLevel = findOrInsertArrayTreeNode(arrayTree, currentParentArrayNodeIdInTree, idNodeName, actualNodeNameForThisDoc, "DYNAMIC", currentDefTreeNodeId);
+            } else if (nodeNameScriptFromDB != null && nodeNameScriptFromDB.toLowerCase().startsWith("select '")) { // Static name
+                String staticName = evaluateStaticScript(conn, nodeNameScriptFromDB);
+                if (staticName != null && !staticName.isEmpty()) {
+                    long idStaticNodeName = dbManager.saveNodeName(conn, staticName);
+                    arrayNodeForThisDefinitionLevel = findOrInsertArrayTreeNode(arrayTree, currentParentArrayNodeIdInTree, idStaticNodeName, staticName, "STATIC", currentDefTreeNodeId);
+                } else { // Static script failed
+                    // System.out.println("Def " + currentDefTreeNodeId + ": Static script failed. No node formed. Returning parent " + currentParentArrayNodeIdInTree);
+                    return currentParentArrayNodeIdInTree;
+                }
+            } else { // No dynamic name, not static - this definition doesn't form a node for this doc.
+                // System.out.println("Def " + currentDefTreeNodeId + ": No ArrayTree node formed. Returning parent " + currentParentArrayNodeIdInTree);
+                return currentParentArrayNodeIdInTree;
+            }
         }
 
-        System.out.println("Document " + idDoc + " provisionally placed in ArrayTree node " + finalNodeIdInArrayTree + " for tree " + treeId);
-
-        ArrayTree.TreeNode docFinalNode = arrayTree.getNode(finalNodeIdInArrayTree);
-        if (docFinalNode == null) {
-            throw new IllegalStateException("Final node " + finalNodeIdInArrayTree + " in ArrayTree is null for tree " + treeId + ". This should not happen.");
+        // Try to place document into children of the current definition node.
+        // The parent for these children in the ArrayTree is arrayNodeForThisDefinitionLevel.
+        List<Integer> childDefIds = getChildDefIds(conn, treeId, currentDefTreeNodeId);
+        if (!childDefIds.isEmpty()) {
+            for (int childDefId : childDefIds) {
+                int placementByChild = placeDocumentInTreeRecursive(conn, arrayTree, childDefId, arrayNodeForThisDefinitionLevel, idDoc, attributeMap, treeId);
+                if (placementByChild != arrayNodeForThisDefinitionLevel) {
+                    return placementByChild;
+                }
+            }
         }
 
-        if (docFinalNode.idNodeXPath == 0) { // If XPath not yet set for this node
-            String xpathStr = arrayTree.generateXpath(finalNodeIdInArrayTree, conn, this.dbManager);
-            System.out.println("Generated XPath for node " + finalNodeIdInArrayTree + ": " + xpathStr);
-            long idNodeXPath = dbManager.saveNodeXPath(conn, xpathStr);
-            docFinalNode.idNodeXPath = idNodeXPath;
+        // No child placed it deeper OR this is a leaf definition.
+        // Check if the document belongs in the node for THIS definition level (arrayNodeForThisDefinitionLevel).
+        boolean docBelongsAtThisNode = false;
+        if (isMeaningfulCondition(docIncludeCondition)) {
+            docBelongsAtThisNode = checkDocIncludeCondition(conn, docIncludeCondition, idDoc, attributeMap, currentDefTreeNodeId);
+        } else if (docIncludeCondition != null && docIncludeCondition.equalsIgnoreCase("true")) {
+            docBelongsAtThisNode = true;
+        } else if (childDefIds.isEmpty() && (docIncludeCondition == null || docIncludeCondition.trim().isEmpty())) {
+            // Leaf node with no specific condition (not "false") can act as a catch-all for this path.
+            System.out.println("Def " + currentDefTreeNodeId + " (ArrayNode " + arrayNodeForThisDefinitionLevel +", Leaf with no/empty/non-false condition): Assuming doc " + idDoc + " belongs.");
+            docBelongsAtThisNode = true;
         }
+        // Note: if docIncludeCondition is explicitly "false", docBelongsAtThisNode remains false.
 
-        dbManager.insertDocXPath(conn, idDoc, docFinalNode.idNodeXPath);
-        docFinalNode.docCount++;
-        System.out.println("Linked doc " + idDoc + " to XPath ID " + docFinalNode.idNodeXPath + ". Node " + finalNodeIdInArrayTree + " docCount: " + docFinalNode.docCount);
-
-        // finalNodeIdInArrayTree is the 'ixnode' for dm_docnode
-        dbManager.insertDocNode(conn, idDoc, finalNodeIdInArrayTree, treeId);
-        System.out.println("Inserted record into dm_docnode: (idDoc=" + idDoc + ", ixNode=" + finalNodeIdInArrayTree + ", idTree=" + treeId + ")");
-
-        dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex());
-        System.out.println("Updated tree " + treeId + " content in database. NextFreeIndex: " + arrayTree.getNextFreeIndex());
+        if (docBelongsAtThisNode) {
+            // System.out.println("Doc " + idDoc + " final placement at ArrayTree node " + arrayNodeForThisDefinitionLevel + " (name: " + (arrayTree.getNode(arrayNodeForThisDefinitionLevel)!=null? dbManager.getNodeNameById(conn, arrayTree.getNode(arrayNodeForThisDefinitionLevel).idNodeName) : "ERR_NULL_NODE") + ", def " + currentDefTreeNodeId + ") based on its include condition.");
+            return arrayNodeForThisDefinitionLevel;
+        } else {
+            // System.out.println("Doc " + idDoc + " does not meet include condition for def " + currentDefTreeNodeId + " (ArrayNode " + arrayNodeForThisDefinitionLevel + "). Effective placement remains at " + currentParentArrayNodeIdInTree);
+            return currentParentArrayNodeIdInTree;
+        }
     }
-//----Helper methods-----------------------------------------------------------------------------------------------
+
+    // --- Helper Methods (findOrInsertArrayTreeNode, evaluateStaticScript, getChildDefIds, getNodeNameForDocumentAtLevel, checkDocIncludeCondition, isMeaningfulCondition, getRootDefTreeNodeId) ---
+    // findOrInsertArrayTreeNode
+    private int findOrInsertArrayTreeNode(ArrayTree arrayTree, int parentArrayNodeId, long idNodeName, String actualName, String type, int defId) {
+        int existingNode = -1;
+        for (int i = 0; i < arrayTree.getMaxNodes(); i++) {
+            ArrayTree.TreeNode node = arrayTree.getNode(i);
+            if (node != null && node.parentId == parentArrayNodeId && node.idNodeName == idNodeName) {
+                existingNode = i;
+                break;
+            }
+        }
+        if (existingNode == -1) {
+            existingNode = arrayTree.insertNode(parentArrayNodeId, idNodeName, 0);
+            System.out.println("Inserted new " + type + " ArrayTree node: " + existingNode + " (name: '" + actualName + "', idNodeName: " + idNodeName + ") under parent " + parentArrayNodeId + " (for def " + defId + ")");
+        } else {
+            // System.out.println("Found existing " + type + " ArrayTree node: " + existingNode + " (name: '" + actualName + "', idNodeName: " + idNodeName + ") under parent " + parentArrayNodeId + " (for def " + defId + ")");
+        }
+        return existingNode;
+    }
+
+    private String evaluateStaticScript(Connection conn, String script) throws SQLException {
+        if (script != null && script.toLowerCase().startsWith("select '") && script.endsWith("'")) {
+            try (PreparedStatement ps = conn.prepareStatement(script)) {
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) return rs.getString(1);
+                }
+            } catch (SQLException e) {
+                System.err.println("WARN: Failed to execute static name script ["+script+"]: " + e.getMessage());
+                if (script.toLowerCase().startsWith("select '") && script.endsWith("'") && script.length() > 8) {
+                    return script.substring(8, script.length() - 1);
+                }
+            }
+        }
+        return null;
+    }
+
+    private List<Integer> getChildDefIds(Connection conn, int treeId, int parentDefNodeId) throws SQLException {
+        List<Integer> ids = new ArrayList<>();
+        String sql = "SELECT iddeftreenode FROM dm_deftreenode WHERE idtree = ? AND iddefparenttreenode = ?";
+        try(PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, treeId);
+            ps.setInt(2, parentDefNodeId);
+            try(ResultSet rs = ps.executeQuery()) {
+                while(rs.next()) ids.add(rs.getInt("iddeftreenode"));
+            }
+        }
+        return ids;
+    }
+
+    // getNodeNameForDocumentAtLevel
+    private String getNodeNameForDocumentAtLevel(Connection conn, String nodeNameScriptFromDB,
+                                                 Map<String, String> attributeMap,
+                                                 long idDoc, int defId) throws SQLException {
+        if (nodeNameScriptFromDB == null || nodeNameScriptFromDB.trim().isEmpty()) {
+            return null;
+        }
+
+        try (PreparedStatement ps = conn.prepareStatement(nodeNameScriptFromDB)) {
+            int paramCount = 0;
+            try { paramCount = ps.getParameterMetaData().getParameterCount(); }
+            catch (SQLException metaEx) { paramCount = (int) nodeNameScriptFromDB.chars().filter(ch -> ch == '?').count(); }
+
+            if (paramCount == 1) {
+                ps.setLong(1, idDoc);
+            } else if (paramCount > 1) {
+                System.err.println("WARN: Def " + defId + ": DB nodeNameScript has " + paramCount + " params. Only binding idDoc if it's the sole param. Script: [" + nodeNameScriptFromDB + "]");
+            }
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String nodeName = rs.getString(1);
+                    return (nodeName == null || nodeName.trim().isEmpty()) ? null : nodeName;
+                } else {
+                    return null;
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("ERROR executing DB nodeNameScript for def " + defId + " [" + nodeNameScriptFromDB + "] with idDoc " + idDoc + ": " + e.getMessage());
+            throw e;
+        }
+    }
+
+
+    private boolean checkDocIncludeCondition(Connection conn, String conditionSql, long idDoc, Map<String, String> attributeMap, int defId) throws SQLException {
+        if (!isMeaningfulCondition(conditionSql)) {
+            return (conditionSql != null && conditionSql.equalsIgnoreCase("true"));
+        }
+        String finalSql = conditionSql.replaceAll(":\\w+\\b", "TRUE");
+        finalSql = finalSql.replaceAll("\\b(dm_doc|DM_DOC)\\.iddoc\\b", "d.iddoc");
+
+        String checkSql = "SELECT EXISTS (SELECT 1 FROM dm_doc d WHERE d.iddoc = ? AND (" + finalSql + "))";
+        try (PreparedStatement ps = conn.prepareStatement(checkSql)) {
+            ps.setLong(1, idDoc);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getBoolean(1);
+            }
+        } catch (SQLException e) {
+            System.err.println("ERROR evaluating docIncludeCondition for def " + defId + " [" + conditionSql + "] with idDoc " + idDoc + ": " + e.getMessage());
+            throw e;
+        }
+    }
+
+    private boolean isMeaningfulCondition(String condition) {
+        return condition != null && !condition.trim().isEmpty() &&
+                !condition.equalsIgnoreCase("false") && !condition.equalsIgnoreCase("true");
+    }
+
     private int getRootDefTreeNodeId(Connection conn, int treeId) throws SQLException {
         String findRootDefSql = "SELECT iddeftreenode FROM dm_deftreenode WHERE idtree = ? AND iddefparenttreenode = 0";
         try (PreparedStatement ps = conn.prepareStatement(findRootDefSql)) {
@@ -181,249 +441,6 @@ public class DocHandler {
                 }
             }
         }
-        return -1; // Not found
-    }
-
-    // Helper to get a static node name if the script is like 'SELECT ''NodeName'''
-    private String getStaticNodeNameFromScript(Connection conn, int treeId, int defParentNodeId) throws SQLException {
-        String scriptSql = "SELECT nodenamescript FROM dm_deftreenode WHERE idtree = ? AND iddefparenttreenode = ?";
-        String nodeNameScript = null;
-        try (PreparedStatement ps = conn.prepareStatement(scriptSql)){
-            ps.setInt(1, treeId);
-            ps.setInt(2, defParentNodeId);
-            try(ResultSet rs = ps.executeQuery()){
-                if(rs.next()){
-                    nodeNameScript = rs.getString(1);
-                }
-            }
-        }
-        if (nodeNameScript != null && nodeNameScript.toLowerCase().startsWith("select '") && nodeNameScript.endsWith("'")) {
-            try (PreparedStatement psName = conn.prepareStatement(nodeNameScript)) {
-                try (ResultSet rsName = psName.executeQuery()) {
-                    return rsName.next() ? rsName.getString(1) : null;
-                }
-            } catch (SQLException e) { /* ignore, will return null */ }
-        }
-        return null;
-    }
-
-
-    private int placeDocumentInTreeRecursive(Connection conn, ArrayTree arrayTree,
-                                             int currentDefTreeNodeId, int currentParentArrayNodeIdInTree, // Renamed for clarity
-                                             long idDoc, Map<String, String> attributeMap, int treeId) throws SQLException {
-
-        // 1. Get definition details: nodeNameScript and docIncludeCondition
-        String defDetailsSql = "SELECT nodenamescript, docincludecondition FROM dm_deftreenode WHERE iddeftreenode = ?";
-        String nodeNameScriptFromDB = null; // Renamed for clarity
-        String docIncludeCondition = null;
-        try (PreparedStatement ps = conn.prepareStatement(defDetailsSql)) {
-            ps.setInt(1, currentDefTreeNodeId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    nodeNameScriptFromDB = rs.getString("nodenamescript");
-                    docIncludeCondition = rs.getString("docincludecondition");
-                } else {
-                    throw new SQLException("Definition node not found by iddeftreenode: " + currentDefTreeNodeId);
-                }
-            }
-        }
-
-        // 2. Determine the actual node name for THIS DOCUMENT at THIS LEVEL,
-        //    and find/create the corresponding ArrayTree node.
-        String actualNodeNameForThisDoc = getNodeNameForDocumentAtLevel(conn, nodeNameScriptFromDB, attributeMap, idDoc, currentDefTreeNodeId);
-
-        // This is the ArrayTree node corresponding to the current definition level (currentDefTreeNodeId).
-        // It's created under currentParentArrayNodeIdInTree.
-        int arrayNodeForCurrentDef = currentParentArrayNodeIdInTree; // Default: if no name, children are processed under the parent.
-
-        if (actualNodeNameForThisDoc != null && !actualNodeNameForThisDoc.isEmpty()) {
-            long idNodeName = dbManager.saveNodeName(conn, actualNodeNameForThisDoc);
-            int existingNodeInArrayTree = -1;
-            for (int i = 0; i < arrayTree.getMaxNodes(); i++) {
-                ArrayTree.TreeNode node = arrayTree.getNode(i);
-                if (node != null && node.parentId == currentParentArrayNodeIdInTree && node.idNodeName == idNodeName) {
-                    existingNodeInArrayTree = i;
-                    break;
-                }
-            }
-            if (existingNodeInArrayTree == -1) {
-                arrayNodeForCurrentDef = arrayTree.insertNode(currentParentArrayNodeIdInTree, idNodeName, 0);
-                System.out.println("Inserted new ArrayTree node: " + arrayNodeForCurrentDef + " (name: '" + actualNodeNameForThisDoc + "') under parent " + currentParentArrayNodeIdInTree + " (for def " + currentDefTreeNodeId + ")");
-            } else {
-                arrayNodeForCurrentDef = existingNodeInArrayTree;
-                System.out.println("Found existing ArrayTree node: " + arrayNodeForCurrentDef + " (name: '" + actualNodeNameForThisDoc + "') under parent " + currentParentArrayNodeIdInTree + " (for def " + currentDefTreeNodeId + ")");
-            }
-        } else {
-            // Handle static node names from script if actualNodeNameForThisDoc was null
-            if (nodeNameScriptFromDB != null && nodeNameScriptFromDB.toLowerCase().startsWith("select '")) {
-                String staticName = null;
-                try (PreparedStatement psStatic = conn.prepareStatement(nodeNameScriptFromDB)) {
-                    try(ResultSet rsStatic = psStatic.executeQuery()){ if(rsStatic.next()) staticName = rsStatic.getString(1); }
-                } catch (SQLException e) { System.err.println("Could not eval static script " + nodeNameScriptFromDB + ": " + e.getMessage());}
-
-                if (staticName != null && !staticName.isEmpty()) {
-                    long idStaticNodeName = dbManager.saveNodeName(conn, staticName);
-                    int existingStaticNode = -1;
-                    for(int i=0; i < arrayTree.getMaxNodes(); i++){
-                        ArrayTree.TreeNode node = arrayTree.getNode(i);
-                        if(node != null && node.parentId == currentParentArrayNodeIdInTree && node.idNodeName == idStaticNodeName){
-                            existingStaticNode = i; break;
-                        }
-                    }
-                    if(existingStaticNode == -1){
-                        arrayNodeForCurrentDef = arrayTree.insertNode(currentParentArrayNodeIdInTree, idStaticNodeName, 0);
-                        System.out.println("Inserted new STATIC ArrayTree node: " + arrayNodeForCurrentDef + " (name: '" + staticName + "') under parent " + currentParentArrayNodeIdInTree);
-                    } else {
-                        arrayNodeForCurrentDef = existingStaticNode;
-                        System.out.println("Found existing STATIC ArrayTree node: " + arrayNodeForCurrentDef + " (name: '" + staticName + "') under parent " + currentParentArrayNodeIdInTree);
-                    }
-                } else {
-                    System.out.println("Def " + currentDefTreeNodeId + ": Doc " + idDoc + " did not yield a dynamic node name, and script is not a simple static name. Children will be considered under parent " + currentParentArrayNodeIdInTree);
-                    // arrayNodeForCurrentDef remains currentParentArrayNodeIdInTree
-                }
-            } else {
-                System.out.println("Def " + currentDefTreeNodeId + ": Doc " + idDoc + " did not yield a dynamic node name. Children will be processed under current parent array node: " + currentParentArrayNodeIdInTree);
-                // arrayNodeForCurrentDef remains currentParentArrayNodeIdInTree
-            }
-        }
-
-        // 3. Recurse for child definitions.
-        //    The parent ArrayTree node for the next level of definitions is arrayNodeForCurrentDef.
-        String childDefsSql = "SELECT iddeftreenode FROM dm_deftreenode WHERE idtree = ? AND iddefparenttreenode = ?";
-        List<Integer> childDefIds = new ArrayList<>();
-        try (PreparedStatement ps = conn.prepareStatement(childDefsSql)) {
-            ps.setInt(1, treeId);
-            ps.setInt(2, currentDefTreeNodeId); // Children of the *current definition node*
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    childDefIds.add(rs.getInt("iddeftreenode"));
-                }
-            }
-        }
-
-        if (!childDefIds.isEmpty()) {
-            for (int childDefId : childDefIds) {
-                // Pass arrayNodeForCurrentDef as the parent under which children of this definition level will be created/found.
-                int placementByChild = placeDocumentInTreeRecursive(conn, arrayTree, childDefId, arrayNodeForCurrentDef, idDoc, attributeMap, treeId);
-
-                // If the recursive call placed the document in a node *different* from arrayNodeForCurrentDef,
-                // it means the document went deeper down that child's path.
-                // That deeper placement takes precedence.
-                if (placementByChild != arrayNodeForCurrentDef) {
-                    // System.out.println("Doc " + idDoc + " taken by child definition " + childDefId + " to node " + placementByChild);
-                    return placementByChild; // Document successfully placed by a child branch.
-                }
-            }
-        }
-
-        // 4. If we reach here, no child definition placed the document deeper OR this is a leaf definition.
-        //    Now, check if the document belongs AT THIS LEVEL (arrayNodeForCurrentDef) based on its include condition.
-        boolean docBelongsAtThisDefNode = checkDocIncludeCondition(conn, docIncludeCondition, idDoc, attributeMap, currentDefTreeNodeId);
-        // System.out.println("Doc " + idDoc + " include condition for def " + currentDefTreeNodeId + " (node " + arrayNodeForCurrentDef + ") is: " + docBelongsAtThisDefNode);
-
-        if (docBelongsAtThisDefNode) {
-            // Document matches the condition for the node derived from the current definition.
-            // Since no children took it further, this is its most specific (lowest) placement.
-            System.out.println("Doc " + idDoc + " final placement at ArrayTree node " + arrayNodeForCurrentDef + " (based on def " + currentDefTreeNodeId + " and its include condition).");
-            return arrayNodeForCurrentDef;
-        } else {
-            // Document does NOT match the include condition for the node derived from this definition, AND no child definition took it deeper.
-            // This means the document does not belong in this branch at or below arrayNodeForCurrentDef.
-            // System.out.println("Doc " + idDoc + " does not match include condition for def " + currentDefTreeNodeId + " (node "+arrayNodeForCurrentDef+") and no children took it. Effective placement remains at: " + currentParentArrayNodeIdInTree);
-            return currentParentArrayNodeIdInTree;
-        }
-    }
-
-
-    // This method now needs to interpret nodeNameScript to determine WHICH document attribute to use, or if it's a static name.
-    private String getNodeNameForDocumentAtLevel(Connection conn, String nodeNameScriptFromDB,
-                                                 Map<String, String> attributeMap, /* attributeMap is now less directly used by this func */
-                                                 long idDoc, int defId) throws SQLException {
-
-        if (nodeNameScriptFromDB == null || nodeNameScriptFromDB.trim().isEmpty()) {
-            System.out.println("Def " + defId + ": No nodeNameScript provided from DB. No node name derived.");
-            return null;
-        }
-
-//        System.out.println("Def " + defId + ": Executing DB nodeNameScript: [" + nodeNameScriptFromDB + "]");
-
-        try (PreparedStatement ps = conn.prepareStatement(nodeNameScriptFromDB)) {
-            int paramCount = 0;
-            try {
-                paramCount = ps.getParameterMetaData().getParameterCount();
-            } catch (SQLException metaEx) {
-                // Fallback if getParameterMetaData fails (e.g. for scripts without '?' or driver issues)
-                paramCount = (int) nodeNameScriptFromDB.chars().filter(ch -> ch == '?').count();
-                if (paramCount > 0) {
-                    System.out.println("Def " + defId + ": Guessed " + paramCount + " parameters from '?' count in script: [" + nodeNameScriptFromDB + "]");
-                }
-            }
-
-            if (paramCount > 0) {
-                // If the script has parameters, assume it's one of the newly modified scripts
-                // expecting idDoc as its primary parameter.
-                if (paramCount == 1) { // Common case for our modified scripts
-                    ps.setLong(1, idDoc);
-                    System.out.println("Def " + defId + ": Binding idDoc=" + idDoc + " to parameter 1 of the DB script.");
-                } else {
-                    // If your scripts for some definition level expect more than one parameter,
-                    // you'll need more sophisticated logic here to determine what to bind.
-                    System.err.println("WARN: Def " + defId + ": DB nodeNameScript has " + paramCount +
-                            " parameters. Current logic only binds idDoc for single-parameter scripts. " +
-                            "Script: [" + nodeNameScriptFromDB + "]");
-                }
-            } else {
-                // Script has no parameters, assume it's static (e.g., 'Root')
-                System.out.println("Def " + defId + ": DB script has no parameters, executing as static.");
-            }
-
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    String nodeName = rs.getString(1); // Get the first column
-                    if (nodeName == null || nodeName.trim().isEmpty()) {
-                        System.out.println("Def " + defId + ": DB script executed but returned null or empty node name for doc " + idDoc + ".");
-                        return null;
-                    }
-                    System.out.println("Def " + defId + ": DB script yielded node name: '" + nodeName + "' for doc " + idDoc);
-                    return nodeName;
-                } else {
-                    // This is a valid scenario if the document doesn't have that attribute value,
-                    System.out.println("Def " + defId + ": DB script executed but returned no rows for doc " + idDoc + ". This means no specific node name for this doc at this level (doc lacks the 'Zakaznik' or other attribute value).");
-                    return null;
-                }
-            }
-        } catch (SQLException e) {
-            System.err.println("ERROR executing DB nodeNameScript for def " + defId + " [" + nodeNameScriptFromDB + "]: " + e.getMessage());
-            throw e; // Re-throw to ensure transaction handling (rollback) works correctly
-        }
-    }
-
-
-    // checkDocIncludeCondition remains mostly the same, ensures it doesn't break transaction on error
-    private boolean checkDocIncludeCondition(Connection conn, String conditionSql, long idDoc, Map<String, String> attributeMap, int defId) throws SQLException {
-        if (conditionSql == null || conditionSql.trim().isEmpty() || conditionSql.equalsIgnoreCase("false")) {
-            return false;
-        }
-        if (conditionSql.equalsIgnoreCase("true")) {
-            return true;
-        }
-        // System.out.println("Evaluating docIncludeCondition for def " + defId + ": [" + conditionSql + "]");
-
-        String finalSql = conditionSql;
-        finalSql = finalSql.replaceAll(":\\w+\\b", "TRUE");
-        finalSql = finalSql.replaceAll("\\b(dm_doc|DM_DOC)\\.iddoc\\b", "d.iddoc");
-
-        String checkSql = "SELECT EXISTS (SELECT 1 FROM dm_doc d WHERE d.iddoc = ? AND (" + finalSql + "))";
-        try (PreparedStatement ps = conn.prepareStatement(checkSql)) {
-            ps.setLong(1, idDoc);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() && rs.getBoolean(1);
-            }
-        } catch (SQLException e) {
-            // If the condition itself is malformed or causes a DB error,
-            // re-throw to abort the transaction, as the state is unknown.
-            System.err.println("ERROR evaluating docIncludeCondition [" + conditionSql + "] for def " + defId + ": " + e.getMessage());
-            throw e;
-        }
+        return -1;
     }
 }

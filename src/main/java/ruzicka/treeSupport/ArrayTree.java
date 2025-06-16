@@ -1,23 +1,36 @@
 package ruzicka.treeSupport;
 
-import ruzicka.databaseOprations.DatabaseManager; // For type hint, not direct use unless passed
+import ruzicka.databaseOprations.DatabaseManager;
 import java.nio.ByteBuffer;
-import java.sql.Connection; // For generateXPath
-import java.sql.SQLException; // For generateXPath
+import java.sql.Connection;
+import java.sql.SQLException;
 
+/**
+ * Represents a tree structure using an array-based implementation.
+ * Provides methods for node manipulation, serialization, and XPath generation.
+ */
 public class ArrayTree {
-    private int maxNodes = 5; // Initial size
+    private int maxNodes = 5;
     private TreeNode[] nodes = new TreeNode[maxNodes];
-    private int nextFreeIndex = 1; // 0 is typically root, free list starts at 1
-    private int currentNodeIndex = 0; // Can be used to track current context during traversal
+    private int nextFreeIndex = 1;
+    private int currentNodeIndex = 0;
 
+    /**
+     * Represents a single node in the ArrayTree.
+     */
     public static class TreeNode {
-        public int parentId;
-        public long idNodeName;
-        public long idNodeXPath;
-        int nodeCount; // Number of direct child nodes
-        public int docCount;  // Number of documents directly associated with this node
+        public int parentId;        // Index of the parent node; 0 or -1 for root/special cases.
+        public long idNodeName;     // ID from DM_NodeName table.
+        public long idNodeXPath;    // ID from DM_NodeXPath table.
+        int nodeCount;       // Number of direct child nodes in this ArrayTree instance.
+        public int docCount;        // Number of documents directly associated with this node.
 
+        /**
+         * Constructs a TreeNode.
+         * @param parentId Index of the parent.
+         * @param idNodeName ID of the node's name.
+         * @param idNodeXPath ID of the node's XPath.
+         */
         public TreeNode(int parentId, long idNodeName, long idNodeXPath) {
             this.parentId = parentId;
             this.idNodeName = idNodeName;
@@ -27,77 +40,66 @@ public class ArrayTree {
         }
     }
 
+    /**
+     * Initializes the ArrayTree with a root node and a free list.
+     * The root node is at index 0.
+     */
     public void initArrayTree() {
-        nodes = new TreeNode[maxNodes]; // Ensure fresh array if called multiple times
-        // Root node at index 0
-        nodes[0] = new TreeNode(0, 0, 0); // parentId 0 means it's the root (or use -1)
-        // idNodeName and idNodeXPath 0 means not yet set
+        nodes = new TreeNode[maxNodes];
+        nodes[0] = new TreeNode(0, 0, 0); // Root node. parentId 0 can mean self-parented root.
 
-        // Initialize free list
         for (int i = 1; i < maxNodes; i++) {
-            nodes[i] = new TreeNode(i + 1, 0, 0); // parentId points to next free node
+            nodes[i] = new TreeNode(i + 1, 0, 0); // parentId points to next free node.
         }
-        if (maxNodes > 1) { // Avoid index out of bounds if maxNodes is 1
-            nodes[maxNodes - 1].parentId = -1; // -1 marks end of free list
+        if (maxNodes > 1) {
+            nodes[maxNodes - 1].parentId = -1; // -1 marks end of free list.
             nextFreeIndex = 1;
-        } else { // Only root node
-            nextFreeIndex = -1; // No free nodes if maxNodes is 1 (or 0)
+        } else {
+            nextFreeIndex = -1;
         }
-        currentNodeIndex = 0; // Start at root
+        currentNodeIndex = 0;
     }
 
+    /**
+     * Expands the internal array holding tree nodes when the free list is exhausted.
+     */
     private void expandArray() {
         int oldSize = maxNodes;
-        int newSize = maxNodes + 5; // Expand by a fixed amount
+        int newSize = maxNodes + 5;
         TreeNode[] newNodesArray = new TreeNode[newSize];
         System.arraycopy(nodes, 0, newNodesArray, 0, oldSize);
 
-        // Link new free nodes to the end of the old free list
-        // Find the last node of the current free list to link the new segment
-        if (nextFreeIndex == -1) { // If no free nodes were left
-            nextFreeIndex = oldSize; // New free list starts at oldSize
-        } else {
-            int currentFree = nextFreeIndex;
-            int previousFree = -1;
-            while(currentFree != -1 && currentFree < oldSize) { // Iterate only within old bounds
-                if (nodes[currentFree] == null) { // Should not happen in a consistent free list
-                    System.err.println("Error: Null node encountered in free list during expansion at index: " + currentFree);
-                    // Attempt to recover or throw error
-                    nextFreeIndex = oldSize; // Fallback: start new free list from oldSize
-                    break;
-                }
-                previousFree = currentFree;
-                currentFree = nodes[currentFree].parentId;
+        int lastFreeLink = -1;
+        if (nextFreeIndex == -1) { // If old free list was empty
+            lastFreeLink = oldSize; // New free list starts here
+        } else { // Find end of old free list to append new free nodes
+            int current = nextFreeIndex;
+            while(nodes[current].parentId != -1 && nodes[current].parentId < oldSize) { // Traverse old free list
+                current = nodes[current].parentId;
             }
-            if (previousFree != -1 && previousFree < oldSize) { // If free list was not empty
-                nodes[previousFree].parentId = oldSize; // Link last old free node to first new free node
-            } else if (nextFreeIndex != -1 && nextFreeIndex >= oldSize) {
-                // This means nextFreeIndex was already pointing into an expanded (but not yet initialized) area.
-                // This state is unusual. For safety, we re-initialize the new segment.
-                nextFreeIndex = oldSize;
-            } else if (nextFreeIndex == -1 && oldSize > 0){ // No free nodes, but array existed.
-                nextFreeIndex = oldSize;
-            } else if (oldSize == 0) { // Array was initially empty
-                nextFreeIndex = 0; // Or 1 if 0 is always root
-            }
+            // 'current' is now the last node of the old free list segment
+            nodes[current].parentId = oldSize; // Link it to the start of the new segment
+            lastFreeLink = nextFreeIndex; // Original head of free list remains the same unless it was empty
         }
-
 
         for (int i = oldSize; i < newSize; i++) {
             newNodesArray[i] = new TreeNode(i + 1, 0, 0);
         }
-        newNodesArray[newSize - 1].parentId = -1; // End of new free list segment
+        newNodesArray[newSize - 1].parentId = -1; // End of new free list segment.
 
         nodes = newNodesArray;
         maxNodes = newSize;
-        // nextFreeIndex is now the start of the newly added segment if old list was exhausted, or remains the head of combined list.
+        if (nextFreeIndex == -1) nextFreeIndex = lastFreeLink; // Restore head if old list was empty
     }
 
 
+    /**
+     * Serializes the current state of the ArrayTree into a byte array.
+     * Node structure: parentId (int), idNodeName (long), idNodeXPath (long), nodeCount (int), docCount (int).
+     * @return Byte array representation of the tree.
+     */
     public byte[] toByteArray() {
-        // Each node: parentId (int), idNodeName (long), idNodeXPath (long), nodeCount (int), docCount (int)
-        // 4 + 8 + 8 + 4 + 4 = 28 bytes per node
-        ByteBuffer buf = ByteBuffer.allocate(maxNodes * 28);
+        ByteBuffer buf = ByteBuffer.allocate(maxNodes * 28); // 4+8+8+4+4 = 28 bytes per node
         for (int i = 0; i < maxNodes; i++) {
             if (nodes[i] != null) {
                 buf.putInt(nodes[i].parentId);
@@ -105,26 +107,23 @@ public class ArrayTree {
                 buf.putLong(nodes[i].idNodeXPath);
                 buf.putInt(nodes[i].nodeCount);
                 buf.putInt(nodes[i].docCount);
-            } else {
-                // Should not happen if array is properly initialized/expanded
-                // Write zeros for null nodes to maintain structure if absolutely necessary,
-                // but it indicates an issue.
-                buf.putInt(0);
-                buf.putLong(0L);
-                buf.putLong(0L);
-                buf.putInt(0);
-                buf.putInt(0);
+            } else { // Should ideally not happen if properly managed
+                buf.putInt(0); buf.putLong(0L); buf.putLong(0L); buf.putInt(0); buf.putInt(0);
             }
         }
         return buf.array();
     }
 
+    /**
+     * Deserializes a byte array into the ArrayTree structure.
+     * @param byteArray The byte array containing the serialized tree.
+     *                  The `nextFreeIndex` must be restored separately from DM_Tree.ixFreeNode.
+     */
     public void fromByteArray(byte[] byteArray) {
         if (byteArray == null || byteArray.length == 0) {
-            initArrayTree(); // Initialize if byte array is empty
+            initArrayTree();
             return;
         }
-        // Determine maxNodes from byteArray length
         this.maxNodes = byteArray.length / 28;
         this.nodes = new TreeNode[this.maxNodes];
         ByteBuffer buf = ByteBuffer.wrap(byteArray);
@@ -140,139 +139,144 @@ public class ArrayTree {
             nodes[i].nodeCount = nodeCount;
             nodes[i].docCount = docCount;
         }
-        // nextFreeIndex needs to be restored separately from DM_Tree.ixFreeNode by the caller
+        // NOTE: nextFreeIndex is NOT part of the byte array.
+        // It must be loaded from DM_Tree.ixFreeNode and set via setNextFreeIndex().
     }
 
+    /**
+     * Inserts a new node into the tree.
+     * @param parentId Index of the parent node for the new node.
+     * @param idNodeName ID of the name for the new node.
+     * @param idNodeXPath ID of the XPath for the new node (can be 0 if not yet determined).
+     * @return The index of the newly inserted node.
+     * @throws IllegalStateException if array expansion fails.
+     */
     public int insertNode(int parentId, long idNodeName, long idNodeXPath) {
         if (nextFreeIndex == -1) {
             expandArray();
-            if (nextFreeIndex == -1) { // Still no free index after expansion (should not happen)
+            if (nextFreeIndex == -1) {
                 throw new IllegalStateException("Failed to expand array or find free index.");
             }
         }
 
         int newNodeId = nextFreeIndex;
-        TreeNode newNode = nodes[newNodeId]; // Get the node from the free list
-        nextFreeIndex = newNode.parentId;   // Advance free list pointer
+        TreeNode newNodeToUse = nodes[newNodeId];
+        nextFreeIndex = newNodeToUse.parentId; // Move to next free node in the list
 
-        // Initialize the new node
-        newNode.parentId = parentId;
-        newNode.idNodeName = idNodeName;
-        newNode.idNodeXPath = idNodeXPath;
-        newNode.nodeCount = 0;
-        newNode.docCount = 0;
+        // Re-initialize the node taken from the free list
+        newNodeToUse.parentId = parentId;
+        newNodeToUse.idNodeName = idNodeName;
+        newNodeToUse.idNodeXPath = idNodeXPath;
+        newNodeToUse.nodeCount = 0;
+        newNodeToUse.docCount = 0;
 
-        // Update parent's child count if parent is valid and not the node itself
         if (parentId >= 0 && parentId < maxNodes && nodes[parentId] != null && parentId != newNodeId) {
             nodes[parentId].nodeCount++;
         }
         return newNodeId;
     }
 
+    /**
+     * Deletes a node from the tree by adding it to the free list.
+     * Note: This is a simple delete; it does not handle recursive deletion of children or re-parenting.
+     * @param nodeId The index of the node to delete.
+     */
     public void deleteNode(int nodeId) {
         if (nodeId < 0 || nodeId >= maxNodes || nodes[nodeId] == null) {
             System.err.println("Attempt to delete invalid node ID: " + nodeId);
             return;
         }
-        // TODO: Recursive deletion of children or re-parenting might be needed.
-        // For now, simple deletion.
 
         TreeNode nodeToDelete = nodes[nodeId];
-        int parentId = nodeToDelete.parentId;
+        int parentIdx = nodeToDelete.parentId;
 
-        if (parentId >= 0 && parentId < maxNodes && nodes[parentId] != null && parentId != nodeId) {
-            nodes[parentId].nodeCount--;
+        // Decrement parent's child count if applicable
+        if (parentIdx >= 0 && parentIdx < maxNodes && nodes[parentIdx] != null && parentIdx != nodeId) {
+            nodes[parentIdx].nodeCount--;
         }
 
-        // Add to free list
-        nodeToDelete.parentId = nextFreeIndex;
+        // Add node to the head of the free list
+        nodeToDelete.parentId = nextFreeIndex; // Points to the old head of the free list
         nodeToDelete.idNodeName = 0;
         nodeToDelete.idNodeXPath = 0;
         nodeToDelete.nodeCount = 0;
         nodeToDelete.docCount = 0;
-        nextFreeIndex = nodeId;
+        nextFreeIndex = nodeId; // This node is now the new head of the free list
     }
 
+    /**
+     * Generates an XPath string for a given node ID.
+     * Requires database access to resolve node name IDs.
+     * @param nodeId The index of the node for which to generate the XPath.
+     * @param conn The active database connection.
+     * @param dbManager An instance of DatabaseManager to fetch node names.
+     * @return The generated XPath string.
+     * @throws SQLException If a database error occurs or node names cannot be resolved.
+     * @throws IllegalArgumentException If nodeId is invalid.
+     */
     public String generateXpath(int nodeId, Connection conn, DatabaseManager dbManager) throws SQLException {
         if (nodeId < 0 || nodeId >= maxNodes || nodes[nodeId] == null) {
             throw new IllegalArgumentException("generateXpath: Node with ID " + nodeId + " is invalid or null. MaxNodes: " + maxNodes);
         }
 
-        // Handle root node (index 0) explicitly
-        if (nodeId == 0) {
-            TreeNode rootNode = nodes[0];
-            if (rootNode.idNodeName != 0) {
-                String rootName = dbManager.getNodeNameById(conn, rootNode.idNodeName);
-                return "/" + (rootName == null ? "" : rootName);
-            } else if (rootNode.idNodeXPath != 0) { // If name not set, but XPath ID is (e.g. from persistence)
-                return dbManager.getNodeXPathById(conn, rootNode.idNodeXPath);
+        TreeNode targetNode = nodes[nodeId];
+        // If the node itself has a fully formed XPath ID, prefer that.
+        if (targetNode.idNodeXPath != 0) {
+            try {
+                // Attempt to fetch pre-stored XPath. This might be from a previous generation.
+                // This assumes idNodeXPath stores the ID of the *full* path.
+                // If idNodeXPath is only for the node's own segment, this logic needs change.
+                // For now, assume it's the full path ID.
+                return dbManager.getNodeXPathById(conn, targetNode.idNodeXPath);
+            } catch (SQLException e) {
+                System.err.println("WARN: Could not fetch pre-stored XPath for idNodeXPath " + targetNode.idNodeXPath + ". Will attempt to generate. Error: " + e.getMessage());
+                // Fall through to generate if fetching fails
             }
-            return "/"; // Default for unnamed, un-XPathed root
         }
 
         StringBuilder xpath = new StringBuilder();
         int currentId = nodeId;
 
+        // Traverse up to the root (node 0 or self-parented node)
         while (currentId >= 0 && currentId < maxNodes && nodes[currentId] != null) {
             TreeNode currentNode = nodes[currentId];
             if (currentNode.idNodeName != 0) {
                 String nodeName = dbManager.getNodeNameById(conn, currentNode.idNodeName);
-                xpath.insert(0, "/" + (nodeName == null ? "ERROR_NULL_NAME" : nodeName));
+                xpath.insert(0, "/" + (nodeName == null ? "_ERR_NAME_" : nodeName));
+            } else if (currentId == 0) { // Root node without a specific name (e.g. fresh tree)
+                // If we reach here, and it's root and has no name, the path will just start with "/"
+                // or be empty if it's the only node.
             } else {
-                // Node has no name, this part of path will be problematic or indicate unnamed segment
-                // For example, if a node only has an XPath ID but no name ID
-                if(currentNode.idNodeXPath != 0 && currentId == nodeId) { // If it's the target node and has XPath directly
-                    return dbManager.getNodeXPathById(conn, currentNode.idNodeXPath);
-                }
-                xpath.insert(0, "/_UNNAMED_NODE_ID_" + currentId + "_"); // Placeholder for unnamed node
-                System.err.println("Warning: Node " + currentId + " in XPath has no idNodeName.");
+                xpath.insert(0, "/_UNNAMED_ID_" + currentId + "_");
+                System.err.println("Warning: Node " + currentId + " in XPath generation has no idNodeName.");
             }
 
             if (currentId == 0 || currentNode.parentId == currentId) { // Reached root or self-parented node
                 break;
             }
+            if (currentNode.parentId < 0 || currentNode.parentId >=maxNodes) { // Invalid parent, stop
+                System.err.println("Warning: Node " + currentId + " has invalid parentId " + currentNode.parentId + " during XPath generation.");
+                break;
+            }
             currentId = currentNode.parentId;
         }
 
-        if (xpath.length() == 0) { // Should only happen if initial nodeId was problematic and not root
-            if (nodeId == 0) return "/"; // Safety for root
-            throw new IllegalStateException("Could not generate XPath for nodeId " + nodeId + ". Path is empty.");
+        if (xpath.length() == 0) {
+            return "/"; // Default for empty path (e.g. if root itself is requested and unnamed)
         }
-
         return xpath.toString();
     }
 
-
-    // Getters and Setters
-    public TreeNode[] getNodes() {
-        return nodes;
-    }
+    //----Getters and Setters--------------------------------------------------------------------------------------------------
+    public TreeNode[] getNodes() { return nodes; }
     public TreeNode getNode(int index) {
-        if (index >= 0 && index < maxNodes) {
-            return nodes[index];
-        }
+        if (index >= 0 && index < maxNodes) { return nodes[index]; }
         return null;
     }
-    public int getMaxNodes() {
-        return maxNodes;
-    }
-    public ArrayTree setMaxNodes(int maxNodes) {
-        this.maxNodes = maxNodes;
-        // Potentially re-initialize or adjust nodes array if size changes significantly
-        return this;
-    }
-    public int getNextFreeIndex() {
-        return nextFreeIndex;
-    }
-    public ArrayTree setNextFreeIndex(int nextFreeIndex) {
-        this.nextFreeIndex = nextFreeIndex;
-        return this;
-    }
-    public int getCurrentNodeIndex() {
-        return currentNodeIndex;
-    }
-    public ArrayTree setCurrentNodeIndex(int currentNodeIndex) {
-        this.currentNodeIndex = currentNodeIndex;
-        return this;
-    }
+    public int getMaxNodes() { return maxNodes; }
+    public ArrayTree setMaxNodes(int maxNodes) { this.maxNodes = maxNodes; return this; }
+    public int getNextFreeIndex() { return nextFreeIndex; }
+    public ArrayTree setNextFreeIndex(int nextFreeIndex) { this.nextFreeIndex = nextFreeIndex; return this; }
+    public int getCurrentNodeIndex() { return currentNodeIndex; }
+    public ArrayTree setCurrentNodeIndex(int currentNodeIndex) { this.currentNodeIndex = currentNodeIndex; return this; }
 }
