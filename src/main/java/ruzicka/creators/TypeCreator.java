@@ -1,7 +1,8 @@
 package ruzicka.creators;
 
+import ruzicka.databaseOprations.DatabaseConfig;
+
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -12,24 +13,25 @@ import java.util.List;
  * @since 2025-04-15
  */
 public class TypeCreator {
-    //----Database connection parameters----------------------------------------------------------------------------------
-    private static final String DB_URL = "jdbc:postgresql://localhost:5432/DMSdb";
-    private static final String DB_USER = "bladebud";
-    private static final String DB_PASSWORD = "44DM5";
-
     //----Database connection---------------------------------------------------------------------------------------------
-    public Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+    public java.sql.Connection getConnection() throws java.sql.SQLException {
+        // Use the DatabaseConfig class to get credentials
+        return java.sql.DriverManager.getConnection(
+                DatabaseConfig.getUrl(),
+                DatabaseConfig.getUser(),
+                DatabaseConfig.getPassword()
+        );
     }
 
     //----Type creation----------------------------------------------------------------------------------------------------
+
     /**
      * creates a new type in the database. checks if the relevant attributes are there and if the type doesnt aleeady exist
      *
-     * @param typeName name of the type to be created
-     * @param nameScript name script for the new type
+     * @param typeName       name of the type to be created
+     * @param nameScript     name script for the new type
      * @param attributeNames list of attribute names for the new type
-     * @param isRequired list of booleans indicating if the attributes are required
+     * @param isRequired     list of booleans indicating if the attributes are required
      */
     public void createType(String typeName, String nameScript, List<String> attributeNames, List<Boolean> isRequired) {
         if (attributeNames.size() != isRequired.size()) {
@@ -115,6 +117,7 @@ public class TypeCreator {
             }
         }
     }
+
     //----Type delete-----------------------------------------------------------------------------------------------------
     public void deleteType(String typeName) {
         String checkSql = "SELECT COUNT(*) FROM dm_doctype WHERE doctypename = ?";
@@ -154,6 +157,7 @@ public class TypeCreator {
             throw new RuntimeException("Error deleting type from database.", e);
         }
     }
+
     //----Type change-----------------------------------------------------------------------------------------------------
     public void changeType(String typeName, String nameScript, List<String> attributeNames, List<Boolean> isRequired) {
         // Query to find the highest version number for the type

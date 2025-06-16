@@ -1,7 +1,8 @@
 package ruzicka.creators;
 
+import ruzicka.databaseOprations.DatabaseConfig;
+
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
 
 /**
@@ -9,14 +10,14 @@ import java.sql.SQLException;
  * @since 2025-04-15
  */
 public class AttrCreator {
-    //----Database connection parameters----------------------------------------------------------------------------------
-    private static final String DB_URL = "jdbc:postgresql://localhost:5432/DMSdb";
-    private static final String DB_USER = "bladebud";
-    private static final String DB_PASSWORD = "44DM5";
-
     //----Database connection---------------------------------------------------------------------------------------------
-    public Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+    public java.sql.Connection getConnection() throws java.sql.SQLException {
+        // Use the DatabaseConfig class to get credentials
+        return java.sql.DriverManager.getConnection(
+                DatabaseConfig.getUrl(),
+                DatabaseConfig.getUser(),
+                DatabaseConfig.getPassword()
+        );
     }
 
     //----Attribute creation----------------------------------------------------------------------------------------------

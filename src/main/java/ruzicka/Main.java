@@ -1,7 +1,8 @@
 package ruzicka;
 
-import ruzicka.handlers.DocHandler; // Changed from DocCreator
-import java.sql.Blob; // Keep for Blob docContent = null;
+import ruzicka.handlers.DocHandler;
+
+import java.sql.Blob;
 import java.util.Arrays;
 import java.util.List;
 

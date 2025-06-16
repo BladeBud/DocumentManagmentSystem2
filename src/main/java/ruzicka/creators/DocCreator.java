@@ -1,10 +1,12 @@
 package ruzicka.creators;
 
+import ruzicka.databaseOprations.DatabaseConfig;
+
 import java.sql.Blob;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.ResultSet; // Added for ResultSet
 import java.util.List;
 
 /**
@@ -12,14 +14,14 @@ import java.util.List;
  * @since 2025-04-17
  */
 public class DocCreator {
-    //----Database connection parameters----------------------------------------------------------------------------------
-    private static final String DB_URL = "jdbc:postgresql://localhost:5432/DMSdb";
-    private static final String DB_USER = "bladebud";
-    private static final String DB_PASSWORD = "44DM5";
-
     //----Database connection---------------------------------------------------------------------------------------------
     public java.sql.Connection getConnection() throws java.sql.SQLException {
-        return java.sql.DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+        // Use the DatabaseConfig class to get credentials
+        return java.sql.DriverManager.getConnection(
+                DatabaseConfig.getUrl(),
+                DatabaseConfig.getUser(),
+                DatabaseConfig.getPassword()
+        );
     }
 
     //----Document creation------------------------------------------------------------------------------------------------
@@ -33,6 +35,7 @@ public class DocCreator {
      * @param docAttrValues List of attribute values
      * @param docAttrNames  List of attribute names
      * @param attrTypes     List of attribute types
+     *
      * @return The ID of the created document
      */
     public long createDocument(Integer idDocType, Blob docContent, String docFormat, List<String> docAttrValues,
@@ -96,6 +99,7 @@ public class DocCreator {
         }
     }
     //----Document deletion------------------------------------------------------------------------------------------------
+
     /**
      * Deletes a document from all nodes in the tree. Without toucing the nodes
      *
@@ -112,6 +116,7 @@ public class DocCreator {
     }
 
     //----document change------------------------------------------------------------------------------------------------
+
     /**
      * Updates the document attributes. Not the content.
      *
@@ -155,6 +160,7 @@ public class DocCreator {
         }
     }
     //----Document content update------------------------------------------------------------------------------------------------
+
     /**
      * Updates the document content without touching anything else.
      *

@@ -1,7 +1,6 @@
 package ruzicka.databaseOprations;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -12,26 +11,32 @@ import java.sql.SQLException;
  * Methods that can operate independently can acquire their own connection.
  */
 public class DatabaseManager {
-    //----Database connection parameters--------------------------------------------------------------------------------
-    private static final String DB_URL = "jdbc:postgresql://localhost:5432/DMSdb";
-    private static final String DB_USER = "bladebud";
-    private static final String DB_PASSWORD = "44DM5";
 
     /**
      * Gets a new database connection. Used by methods not participating in an existing transaction.
+     *
      * @return A new database connection.
+     *
      * @throws SQLException If a database access error occurs.
      */
-    public Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+    public java.sql.Connection getConnection() throws java.sql.SQLException {
+        // Use the DatabaseConfig class to get credentials
+        return java.sql.DriverManager.getConnection(
+                DatabaseConfig.getUrl(),
+                DatabaseConfig.getUser(),
+                DatabaseConfig.getPassword()
+        );
     }
 
     /**
      * Saves a node name to the DM_NodeName table. If the name exists, returns its ID; otherwise, inserts and returns the new ID.
      * This method is expected to be called within an existing transaction.
-     * @param conn The active database connection.
+     *
+     * @param conn     The active database connection.
      * @param nodeName The name of the node.
+     *
      * @return The ID (idNodeName) of the node name.
+     *
      * @throws SQLException If a database access error occurs.
      */
     public long saveNodeName(Connection conn, String nodeName) throws SQLException {
@@ -62,9 +67,12 @@ public class DatabaseManager {
     /**
      * Retrieves a node name by its ID from DM_NodeName.
      * This method is expected to be called within an existing transaction.
-     * @param conn The active database connection.
+     *
+     * @param conn       The active database connection.
      * @param idNodeName The ID of the node name.
+     *
      * @return The node name string.
+     *
      * @throws SQLException If the node name is not found or a database error occurs.
      */
     public String getNodeNameById(Connection conn, long idNodeName) throws SQLException {
@@ -84,9 +92,12 @@ public class DatabaseManager {
     /**
      * Saves a node XPath to the DM_NodeXPath table. If the XPath exists, returns its ID; otherwise, inserts and returns the new ID.
      * This method is expected to be called within an existing transaction.
-     * @param conn The active database connection.
+     *
+     * @param conn      The active database connection.
      * @param nodeXPath The XPath string of the node.
+     *
      * @return The ID (idNodeXPath) of the node XPath.
+     *
      * @throws SQLException If a database access error occurs.
      */
     public long saveNodeXPath(Connection conn, String nodeXPath) throws SQLException {
@@ -116,9 +127,12 @@ public class DatabaseManager {
     /**
      * Retrieves a node XPath by its ID from DM_NodeXPath.
      * This method is expected to be called within an existing transaction.
-     * @param conn The active database connection.
+     *
+     * @param conn        The active database connection.
      * @param idNodeXPath The ID of the node XPath.
+     *
      * @return The node XPath string.
+     *
      * @throws SQLException If the node XPath is not found or a database error occurs.
      */
     public String getNodeXPathById(Connection conn, long idNodeXPath) throws SQLException {
@@ -138,9 +152,12 @@ public class DatabaseManager {
     /**
      * Retrieves the TreeContent (as byte array) from DM_Tree for a given tree ID.
      * Assumes DM_Tree.TreeContent is of type BYTEA.
-     * @param conn The active database connection.
+     *
+     * @param conn   The active database connection.
      * @param treeId The ID of the tree.
+     *
      * @return The tree content as a byte array, or null if not found or content is null.
+     *
      * @throws SQLException If a database access error occurs.
      */
     public byte[] getTreeContent(Connection conn, int treeId) throws SQLException {
@@ -158,10 +175,12 @@ public class DatabaseManager {
 
     /**
      * Updates the TreeContent (BYTEA) and ixFreeNode in the DM_Tree table.
-     * @param conn The active database connection.
-     * @param treeId The ID of the tree to update.
-     * @param treeContent The new tree content as a byte array.
+     *
+     * @param conn              The active database connection.
+     * @param treeId            The ID of the tree to update.
+     * @param treeContent       The new tree content as a byte array.
      * @param nextFreeNodeIndex The new free node index for the ArrayTree.
+     *
      * @throws SQLException If a database access error occurs.
      */
     public void updateTree(Connection conn, int treeId, byte[] treeContent, int nextFreeNodeIndex) throws SQLException {
@@ -180,9 +199,12 @@ public class DatabaseManager {
 
     /**
      * Retrieves the ixFreeNode index from DM_Tree for a given tree ID.
-     * @param conn The active database connection.
+     *
+     * @param conn   The active database connection.
      * @param treeId The ID of the tree.
+     *
      * @return The ixFreeNode value.
+     *
      * @throws SQLException If the tree is not found or a database error occurs.
      */
     public int getTreeNextFreeNodeIndex(Connection conn, int treeId) throws SQLException {
@@ -201,9 +223,11 @@ public class DatabaseManager {
 
     /**
      * Inserts a record into DM_DocXPath, linking a document to its node XPath representation.
-     * @param conn The active database connection.
-     * @param idDoc The ID of the document.
+     *
+     * @param conn        The active database connection.
+     * @param idDoc       The ID of the document.
      * @param idNodeXPath The ID of the node XPath.
+     *
      * @throws SQLException If a database access error occurs.
      */
     public void insertDocXPath(Connection conn, long idDoc, long idNodeXPath) throws SQLException {
@@ -217,10 +241,12 @@ public class DatabaseManager {
 
     /**
      * Inserts a record into DM_DocNode, linking a document to a specific node index within a tree structure.
-     * @param conn The active database connection.
-     * @param idDoc The ID of the document.
+     *
+     * @param conn   The active database connection.
+     * @param idDoc  The ID of the document.
      * @param ixNode The index of the node in the ArrayTree for this tree instance.
      * @param idTree The ID of the tree.
+     *
      * @throws SQLException If a database access error occurs.
      */
     public void insertDocNode(Connection conn, long idDoc, int ixNode, int idTree) throws SQLException {

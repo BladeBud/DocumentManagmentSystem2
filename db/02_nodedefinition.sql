@@ -9,7 +9,7 @@ INSERT INTO dm_deftreenode (idTree, idDefParentTreeNode, docIncludeCondition, no
 VALUES (
            1,  -- idTree
            0,  -- idDefParentTreeNode (0 for root)
-           'false',  -- docIncludeCondition
+           'true',  -- docIncludeCondition
            'SELECT ''Root'''  -- nodeNameScript (static name for root)
        );
 
@@ -62,8 +62,8 @@ VALUES (
                FROM DM_AttrValueStr TAV
                JOIN DM_DocTypeAttr TDTA ON TAV.idDocTypeAttr = TDTA.idDocTypeAttr
                JOIN DM_DocAttr TDA ON TDTA.idDocAttr = TDA.idDocAttr
-               WHERE TAV.idDoc = d.idDoc AND TDA.attrName = ''Zakaznik''
-                 AND (TAV.Value = ''aaa'' OR TAV.Value = ''bbb'')
+               WHERE TAV.idDoc = d.idDoc AND TDA.attrName = ''''Zakaznik''''
+                 AND (TAV.Value = ''''aaa'''' OR TAV.Value = ''''bbb'''')
            )',  -- docIncludeCondition
            'SELECT ''RootConditionedForAAABBB'''  -- nodeNameScript (static name for root)
        );

@@ -1,6 +1,7 @@
 package ruzicka.treeSupport;
 
 import ruzicka.databaseOprations.DatabaseManager;
+
 import java.nio.ByteBuffer;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -27,8 +28,9 @@ public class ArrayTree {
 
         /**
          * Constructs a TreeNode.
-         * @param parentId Index of the parent.
-         * @param idNodeName ID of the node's name.
+         *
+         * @param parentId    Index of the parent.
+         * @param idNodeName  ID of the node's name.
          * @param idNodeXPath ID of the node's XPath.
          */
         public TreeNode(int parentId, long idNodeName, long idNodeXPath) {
@@ -74,7 +76,7 @@ public class ArrayTree {
             lastFreeLink = oldSize; // New free list starts here
         } else { // Find end of old free list to append new free nodes
             int current = nextFreeIndex;
-            while(nodes[current].parentId != -1 && nodes[current].parentId < oldSize) { // Traverse old free list
+            while (nodes[current].parentId != -1 && nodes[current].parentId < oldSize) { // Traverse old free list
                 current = nodes[current].parentId;
             }
             // 'current' is now the last node of the old free list segment
@@ -96,6 +98,7 @@ public class ArrayTree {
     /**
      * Serializes the current state of the ArrayTree into a byte array.
      * Node structure: parentId (int), idNodeName (long), idNodeXPath (long), nodeCount (int), docCount (int).
+     *
      * @return Byte array representation of the tree.
      */
     public byte[] toByteArray() {
@@ -108,7 +111,11 @@ public class ArrayTree {
                 buf.putInt(nodes[i].nodeCount);
                 buf.putInt(nodes[i].docCount);
             } else { // Should ideally not happen if properly managed
-                buf.putInt(0); buf.putLong(0L); buf.putLong(0L); buf.putInt(0); buf.putInt(0);
+                buf.putInt(0);
+                buf.putLong(0L);
+                buf.putLong(0L);
+                buf.putInt(0);
+                buf.putInt(0);
             }
         }
         return buf.array();
@@ -116,6 +123,7 @@ public class ArrayTree {
 
     /**
      * Deserializes a byte array into the ArrayTree structure.
+     *
      * @param byteArray The byte array containing the serialized tree.
      *                  The `nextFreeIndex` must be restored separately from DM_Tree.ixFreeNode.
      */
@@ -145,10 +153,13 @@ public class ArrayTree {
 
     /**
      * Inserts a new node into the tree.
-     * @param parentId Index of the parent node for the new node.
-     * @param idNodeName ID of the name for the new node.
+     *
+     * @param parentId    Index of the parent node for the new node.
+     * @param idNodeName  ID of the name for the new node.
      * @param idNodeXPath ID of the XPath for the new node (can be 0 if not yet determined).
+     *
      * @return The index of the newly inserted node.
+     *
      * @throws IllegalStateException if array expansion fails.
      */
     public int insertNode(int parentId, long idNodeName, long idNodeXPath) {
@@ -179,6 +190,7 @@ public class ArrayTree {
     /**
      * Deletes a node from the tree by adding it to the free list.
      * Note: This is a simple delete; it does not handle recursive deletion of children or re-parenting.
+     *
      * @param nodeId The index of the node to delete.
      */
     public void deleteNode(int nodeId) {
@@ -207,11 +219,14 @@ public class ArrayTree {
     /**
      * Generates an XPath string for a given node ID.
      * Requires database access to resolve node name IDs.
-     * @param nodeId The index of the node for which to generate the XPath.
-     * @param conn The active database connection.
+     *
+     * @param nodeId    The index of the node for which to generate the XPath.
+     * @param conn      The active database connection.
      * @param dbManager An instance of DatabaseManager to fetch node names.
+     *
      * @return The generated XPath string.
-     * @throws SQLException If a database error occurs or node names cannot be resolved.
+     *
+     * @throws SQLException             If a database error occurs or node names cannot be resolved.
      * @throws IllegalArgumentException If nodeId is invalid.
      */
     public String generateXpath(int nodeId, Connection conn, DatabaseManager dbManager) throws SQLException {
@@ -254,7 +269,7 @@ public class ArrayTree {
             if (currentId == 0 || currentNode.parentId == currentId) { // Reached root or self-parented node
                 break;
             }
-            if (currentNode.parentId < 0 || currentNode.parentId >=maxNodes) { // Invalid parent, stop
+            if (currentNode.parentId < 0 || currentNode.parentId >= maxNodes) { // Invalid parent, stop
                 System.err.println("Warning: Node " + currentId + " has invalid parentId " + currentNode.parentId + " during XPath generation.");
                 break;
             }
@@ -268,15 +283,41 @@ public class ArrayTree {
     }
 
     //----Getters and Setters--------------------------------------------------------------------------------------------------
-    public TreeNode[] getNodes() { return nodes; }
+    public TreeNode[] getNodes() {
+        return nodes;
+    }
+
     public TreeNode getNode(int index) {
-        if (index >= 0 && index < maxNodes) { return nodes[index]; }
+        if (index >= 0 && index < maxNodes) {
+            return nodes[index];
+        }
         return null;
     }
-    public int getMaxNodes() { return maxNodes; }
-    public ArrayTree setMaxNodes(int maxNodes) { this.maxNodes = maxNodes; return this; }
-    public int getNextFreeIndex() { return nextFreeIndex; }
-    public ArrayTree setNextFreeIndex(int nextFreeIndex) { this.nextFreeIndex = nextFreeIndex; return this; }
-    public int getCurrentNodeIndex() { return currentNodeIndex; }
-    public ArrayTree setCurrentNodeIndex(int currentNodeIndex) { this.currentNodeIndex = currentNodeIndex; return this; }
+
+    public int getMaxNodes() {
+        return maxNodes;
+    }
+
+    public ArrayTree setMaxNodes(int maxNodes) {
+        this.maxNodes = maxNodes;
+        return this;
+    }
+
+    public int getNextFreeIndex() {
+        return nextFreeIndex;
+    }
+
+    public ArrayTree setNextFreeIndex(int nextFreeIndex) {
+        this.nextFreeIndex = nextFreeIndex;
+        return this;
+    }
+
+    public int getCurrentNodeIndex() {
+        return currentNodeIndex;
+    }
+
+    public ArrayTree setCurrentNodeIndex(int currentNodeIndex) {
+        this.currentNodeIndex = currentNodeIndex;
+        return this;
+    }
 }
