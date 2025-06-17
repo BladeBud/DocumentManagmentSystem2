@@ -1,26 +1,19 @@
-create table DM_DocType
-(
-    idDocType serial
-        primary key,
+CREATE TABLE IF NOT EXISTS DM_DocType (
+    idDocType serial primary key,
     docTypeName varchar(255) not null,
     docNameScript text not null
---         docNameScript varchar(255) not null
 );
 
-create table DM_DocAttr
-(
-    idDocAttr serial
-        primary key,
+CREATE TABLE IF NOT EXISTS DM_DocAttr (
+    idDocAttr serial primary key,
     attrName varchar(255) not null,
     attrType varchar(255) not null
 );
 
-create table DM_DocTypeAttr
-(
-    idDocTypeAttr serial
-        primary key,
-    idDocType integer not null references DM_DocType,
-    idDocAttr integer not null references DM_DocAttr,
+CREATE TABLE IF NOT EXISTS DM_DocTypeAttr (
+    idDocTypeAttr serial primary key,
+    idDocType integer not null references DM_DocType(idDocType) ON DELETE CASCADE,
+    idDocAttr integer not null references DM_DocAttr(idDocAttr) ON DELETE CASCADE,
     isRequired boolean not null
 -- isScalar boolean not null
 );
@@ -68,7 +61,7 @@ create table DM_AttrValueDate
     Value date not null
 );
 
-create table DM_Tree
+CREATE TABLE IF NOT EXISTS DM_Tree
 (
     idTree serial
         primary key,
@@ -78,15 +71,13 @@ create table DM_Tree
     TreeContent bytea not null
 );
 
-create table DM_DefTreeNode
-(
-    idDefTreeNode serial
-        primary key,
-    idTree integer not null references DM_Tree,
+CREATE TABLE IF NOT EXISTS DM_DefTreeNode (
+    idDefTreeNode serial primary key,
+    idTree integer not null references DM_Tree(idTree) ON DELETE CASCADE,
     idDefParentTreeNode integer not null,
     docIncludeCondition text not null,
-    nodeNameScript text not null
---     nodeAccessCondition boolean not null
+    nodeNameScript text not null,
+    UNIQUE(idTree, idDefParentTreeNode, nodeNameScript) -- Helps prevent logical duplicates
 );
 
 create table DM_NodeXPath
