@@ -20,7 +20,7 @@ import java.util.Map;
  * It coordinates {@link DocCreator}, {@link DatabaseManager}, and {@link ArrayTree}.
  */
 public class DocHandler {
-
+//----------------------------------------------------------------------------------------------------------------------
 
     private DatabaseManager dbManager;
     private DocCreator docCreator;
@@ -38,7 +38,7 @@ public class DocHandler {
                 DatabaseConfig.getPassword()
         );
     }
-
+//----addDocument-------------------------------------------------------------------------------------------------------
     public void addDocument(Integer idDocType, Blob docContent, String docFormat,
                             List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
         Connection conn = null;
@@ -144,7 +144,7 @@ public class DocHandler {
         // System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Starting recursive placement. RootDefID: " + rootDefNodeIdForThisTree + " (corresponds to ArrayTree Node 0).");
         int finalNodeIdInArrayTree = placeDocumentInTreeRecursive(conn, arrayTree, rootDefNodeIdForThisTree, 0, idDoc, attributeMap, treeId);
 
-        // System.out.println(">>> Doc " + idDoc + ", Tree " + treeId + ": Placement result from recursion: finalNodeIdInArrayTree = " + finalNodeIdInArrayTree);
+//         System.out.println(">>> Doc " + idDoc + ", Tree " + treeId + ": Placement result from recursion: finalNodeIdInArrayTree = " + finalNodeIdInArrayTree);
 
         // After recursion, if finalNodeIdInArrayTree is still 0, it means the document belongs in the
         // ArrayTree node 0 (which represents the tree's defined root), OR it didn't meet the root's own include condition.
@@ -400,4 +400,98 @@ public class DocHandler {
         }
         return -1;
     }
+
+    //----deleteDocument---------------------------------------------------------------------------------------------------
+    public void deleteDocument(long idDoc){
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            conn.setAutoCommit(false);
+
+            // Delete doc content from dm_doccontent
+            String deleteDocContentSql = "DELETE FROM dm_doccontent WHERE iddoc = ?";
+            try (PreparedStatement ps = conn.prepareStatement(deleteDocContentSql)) {
+                ps.setLong(1, idDoc);
+                int rowsAffected = ps.executeUpdate();
+                if (rowsAffected == 0) {
+                    System.err.println("No document content found for idDoc: " + idDoc);
+                } else {
+                    System.out.println("Deleted document content for idDoc: " + idDoc);
+                }
+            }
+
+            // Delete from dm_docnode
+            String deleteDocNodeSql = "DELETE FROM dm_docnode WHERE iddoc = ?";
+            try (PreparedStatement ps = conn.prepareStatement(deleteDocNodeSql)) {
+                ps.setLong(1, idDoc);
+                ps.executeUpdate();
+            }
+
+            // Delete from dm_docxpath
+            String deleteDocXPathSql = "DELETE FROM dm_docxpath WHERE iddoc = ?";
+            try (PreparedStatement ps = conn.prepareStatement(deleteDocXPathSql)) {
+                ps.setLong(1, idDoc);
+                ps.executeUpdate();
+            }
+
+            // Delete attribute values from dm_docattrvalues if they exist
+            String deleteDocAttrLongSql = "DELETE FROM dm_attrvaluelong WHERE iddoc = ?";
+            String deleteDocAttrDateSql = "DELETE FROM dm_attrvaluedate WHERE iddoc = ?";
+            String deleteDocAttrStrSql = "DELETE FROM dm_attrvaluestr WHERE iddoc = ?";
+            try (PreparedStatement psLong = conn.prepareStatement(deleteDocAttrLongSql);
+                 PreparedStatement psDate = conn.prepareStatement(deleteDocAttrDateSql);
+                 PreparedStatement psStr = conn.prepareStatement(deleteDocAttrStrSql)) {
+
+                psLong.setLong(1, idDoc);
+                psLong.executeUpdate();
+
+                psDate.setLong(1, idDoc);
+                psDate.executeUpdate();
+
+                psStr.setLong(1, idDoc);
+                psStr.executeUpdate();
+            }
+
+
+            // Delete from dm_doc
+            String deleteDocSql = "DELETE FROM dm_doc WHERE iddoc = ?";
+            try (PreparedStatement ps = conn.prepareStatement(deleteDocSql)) {
+                ps.setLong(1, idDoc);
+                ps.executeUpdate();
+            }
+
+            conn.commit();
+            System.out.println("Successfully deleted document with idDoc: " + idDoc);
+
+        } catch (Exception e) {
+            if (conn != null) {
+                try {
+                    System.err.println("Rolling back transaction due to error: " + e.getMessage());
+                    conn.rollback();
+                } catch (SQLException ex) {
+                    System.err.println("Error during transaction rollback: " + ex.getMessage());
+                    e.addSuppressed(ex);
+                }
+            }
+            System.err.println("Full error during deleteDocument:");
+            e.printStackTrace(System.err);
+        }
+    }
+
+    //----cascade delete all empty nodes---------------------------------------------------------------------------------
+//    private void cascadeDeleteEmptyNodes(Connection conn, int treeId) throws SQLException {
+//        String sql = "SELECT idnode FROM dm_docnode WHERE idtree = ? AND doccount = 0";
+//        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+//            ps.setInt(1, treeId);
+//            try (ResultSet rs = ps.executeQuery()) {
+//                while (rs.next()) {
+//                    int idNode = rs.getInt("idnode");
+//                    String deleteSql = "DELETE FROM dm_docnode WHERE idnode = ?";
+//                    try (PreparedStatement psDelete = conn.prepareStatement(deleteSql)) {
+//                        psDelete.setInt(1, idNode);
+//                    }
+//                }
+//            }
+//        }
+//    }
 }
