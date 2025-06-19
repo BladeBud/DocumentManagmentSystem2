@@ -23,7 +23,7 @@ public class ArrayTree {
         public int parentId;        // Index of the parent node; 0 or -1 for root/special cases.
         public long idNodeName;     // ID from DM_NodeName table.
         public long idNodeXPath;    // ID from DM_NodeXPath table.
-        int nodeCount;       // Number of direct child nodes in this ArrayTree instance.
+        public int nodeCount;       // Number of direct child nodes in this ArrayTree instance.
         public int docCount;        // Number of documents directly associated with this node.
 
         /**

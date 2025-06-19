@@ -404,65 +404,24 @@ public class DocHandler {
     //----deleteDocument---------------------------------------------------------------------------------------------------
     public void deleteDocument(long idDoc){
         Connection conn = null;
-        try {
+        try{
             conn = getConnection();
             conn.setAutoCommit(false);
 
-            // Delete doc content from dm_doccontent
-            String deleteDocContentSql = "DELETE FROM dm_doccontent WHERE iddoc = ?";
-            try (PreparedStatement ps = conn.prepareStatement(deleteDocContentSql)) {
-                ps.setLong(1, idDoc);
-                int rowsAffected = ps.executeUpdate();
-                if (rowsAffected == 0) {
-                    System.err.println("No document content found for idDoc: " + idDoc);
-                } else {
-                    System.out.println("Deleted document content for idDoc: " + idDoc);
-                }
+            Map<Integer, Integer> treeAndNodeMap = getDocumentNodeLocations(conn, idDoc);
+
+            docCreator.deleteDocument(conn, idDoc);
+            System.out.println("Successfully deleted document data for idDoc: " + idDoc);
+
+            for (Map.Entry<Integer, Integer> entry : treeAndNodeMap.entrySet()) {
+                int treeId = entry.getKey();
+                int nodeId = entry.getValue();
+                System.out.println("--- Cleaning up Tree " + treeId + " starting from Node " + nodeId + " ---");
+                cascadeDeleteEmptyNodes(conn, treeId, nodeId);
             }
-
-            // Delete from dm_docnode
-            String deleteDocNodeSql = "DELETE FROM dm_docnode WHERE iddoc = ?";
-            try (PreparedStatement ps = conn.prepareStatement(deleteDocNodeSql)) {
-                ps.setLong(1, idDoc);
-                ps.executeUpdate();
-            }
-
-            // Delete from dm_docxpath
-            String deleteDocXPathSql = "DELETE FROM dm_docxpath WHERE iddoc = ?";
-            try (PreparedStatement ps = conn.prepareStatement(deleteDocXPathSql)) {
-                ps.setLong(1, idDoc);
-                ps.executeUpdate();
-            }
-
-            // Delete attribute values from dm_docattrvalues if they exist
-            String deleteDocAttrLongSql = "DELETE FROM dm_attrvaluelong WHERE iddoc = ?";
-            String deleteDocAttrDateSql = "DELETE FROM dm_attrvaluedate WHERE iddoc = ?";
-            String deleteDocAttrStrSql = "DELETE FROM dm_attrvaluestr WHERE iddoc = ?";
-            try (PreparedStatement psLong = conn.prepareStatement(deleteDocAttrLongSql);
-                 PreparedStatement psDate = conn.prepareStatement(deleteDocAttrDateSql);
-                 PreparedStatement psStr = conn.prepareStatement(deleteDocAttrStrSql)) {
-
-                psLong.setLong(1, idDoc);
-                psLong.executeUpdate();
-
-                psDate.setLong(1, idDoc);
-                psDate.executeUpdate();
-
-                psStr.setLong(1, idDoc);
-                psStr.executeUpdate();
-            }
-
-
-            // Delete from dm_doc
-            String deleteDocSql = "DELETE FROM dm_doc WHERE iddoc = ?";
-            try (PreparedStatement ps = conn.prepareStatement(deleteDocSql)) {
-                ps.setLong(1, idDoc);
-                ps.executeUpdate();
-            }
+            System.out.println("Successfully cleaned up all trees for document idDoc: " + idDoc);
 
             conn.commit();
-            System.out.println("Successfully deleted document with idDoc: " + idDoc);
-
         } catch (Exception e) {
             if (conn != null) {
                 try {
@@ -477,21 +436,67 @@ public class DocHandler {
             e.printStackTrace(System.err);
         }
     }
-
+//----helpers for deleteDocument----------------------------------------------------------------------------------------
+    private Map<Integer, Integer> getDocumentNodeLocations(Connection conn, long idDoc) throws SQLException {
+        Map<Integer, Integer> locations = new HashMap<>();
+        String sql = "SELECT idtree, ixnode FROM dm_docnode WHERE iddoc = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, idDoc);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    locations.put(rs.getInt("idtree"), rs.getInt("ixnode"));
+                }
+            }
+        }
+        return locations;
+    }
     //----cascade delete all empty nodes---------------------------------------------------------------------------------
-//    private void cascadeDeleteEmptyNodes(Connection conn, int treeId) throws SQLException {
-//        String sql = "SELECT idnode FROM dm_docnode WHERE idtree = ? AND doccount = 0";
-//        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-//            ps.setInt(1, treeId);
-//            try (ResultSet rs = ps.executeQuery()) {
-//                while (rs.next()) {
-//                    int idNode = rs.getInt("idnode");
-//                    String deleteSql = "DELETE FROM dm_docnode WHERE idnode = ?";
-//                    try (PreparedStatement psDelete = conn.prepareStatement(deleteSql)) {
-//                        psDelete.setInt(1, idNode);
-//                    }
-//                }
-//            }
-//        }
-//    }
+    private void cascadeDeleteEmptyNodes(Connection conn, int treeId, int startingNodeId) throws SQLException {
+
+        ArrayTree arrayTree = new ArrayTree();
+        byte[] treeContentBytes = dbManager.getTreeContent(conn, treeId);
+        int nextFreeIxForTree = dbManager.getTreeNextFreeNodeIndex(conn, treeId);
+
+        // If empty then throw no content
+        if (treeContentBytes == null || treeContentBytes.length == 0) {
+            System.out.println("Tree " + treeId + " is empty. No nodes to delete.");
+            return;
+        }
+        arrayTree.fromByteArray(treeContentBytes);
+        arrayTree.setNextFreeIndex(nextFreeIxForTree);
+
+        int currentNodeId = startingNodeId;
+
+        //go level up to the parent node
+        while (currentNodeId > 0) { //not deleting the root node (index 0)
+            ArrayTree.TreeNode currentNode = arrayTree.getNode(currentNodeId);
+            if (currentNode == null){
+                System.err.println("ERROR: Node " + currentNodeId + " not found in ArrayTree for tree " + treeId + ". Cannot delete empty nodes.");
+                break;
+            }
+            //decrease the number of docCount
+            if (currentNodeId == startingNodeId){
+                currentNode.docCount--;
+            }
+
+            //check if current node is empty (0 children 0 docs)
+            if (currentNode.docCount <= 0 && currentNode.nodeCount <=0){
+                int parentNodeId = currentNode.parentId;
+
+                String nodeName = dbManager.getNodeNameById(conn, currentNode.idNodeName);//purely cosmetic for logging
+
+                //delete the node from the ArrayTree
+                arrayTree.deleteNode(currentNodeId);
+                System.out.println("Deleted empty node " + currentNodeId + " (name: '" + nodeName + "') from tree " + treeId);
+                //moveup to the parent node
+                currentNodeId = parentNodeId;
+            }else {
+                System.out.println("Node " + currentNodeId + " (name: '" + dbManager.getNodeNameById(conn, currentNode.idNodeName) + "') is not empty. Ending.");
+                break;
+            }
+        }
+        dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex());
+        System.out.println("Updated tree " + treeId + " after deleting empty nodes. NextFreeIndex: " + arrayTree.getNextFreeIndex());
+
+    }
 }

@@ -82,7 +82,6 @@ public class DocCreator {
                 try {
                     conn.rollback();
                 } catch (SQLException ex) {
-                    // Log rollback failure or add to original exception
                     e.addSuppressed(ex);
                 }
             }
@@ -99,19 +98,54 @@ public class DocCreator {
         }
     }
     //----Document deletion------------------------------------------------------------------------------------------------
-
     /**
-     * Deletes a document from all nodes in the tree. Without toucing the nodes
+     * Deletes a document and all its associated data (content, attribute values) from the database.
      *
-     * @param idDoc The document ID to delete
+     * @param conn  The active database connection from the calling transaction.
+     * @param idDoc The ID of the document to delete.
+     * @throws SQLException If a database error occurs.
      */
-    public void deleteDocument(long idDoc) {
-        String deleteSql = "DELETE FROM dm_doc WHERE iddoc = ?";
-        try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(deleteSql)) {
+    public void deleteDocument(Connection conn, long idDoc) throws SQLException {
+        // Delete from dm_docnode
+        try (PreparedStatement ps = conn.prepareStatement("DELETE FROM dm_docnode WHERE iddoc = ?")) {
             ps.setLong(1, idDoc);
             ps.executeUpdate();
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to delete document", e);
+        }
+
+        // Delete from dm_docxpath
+        try (PreparedStatement ps = conn.prepareStatement("DELETE FROM dm_docxpath WHERE iddoc = ?")) {
+            ps.setLong(1, idDoc);
+            ps.executeUpdate();
+        }
+
+        // Delete attribute val
+        try (PreparedStatement psStr = conn.prepareStatement("DELETE FROM dm_attrvaluestr WHERE iddoc = ?");
+             PreparedStatement psLong = conn.prepareStatement("DELETE FROM dm_attrvaluelong WHERE iddoc = ?");
+             PreparedStatement psDate = conn.prepareStatement("DELETE FROM dm_attrvaluedate WHERE iddoc = ?")) {
+
+            psStr.setLong(1, idDoc);
+            psStr.executeUpdate();
+
+            psLong.setLong(1, idDoc);
+            psLong.executeUpdate();
+
+            psDate.setLong(1, idDoc);
+            psDate.executeUpdate();
+        }
+
+        // Delete document content
+        try (PreparedStatement ps = conn.prepareStatement("DELETE FROM dm_doccontent WHERE iddoc = ?")) {
+            ps.setLong(1, idDoc);
+            ps.executeUpdate();
+        }
+
+        //delete the main document record from dm_doc
+        try (PreparedStatement ps = conn.prepareStatement("DELETE FROM dm_doc WHERE iddoc = ?")) {
+            ps.setLong(1, idDoc);
+            int rowsAffected = ps.executeUpdate();
+            if (rowsAffected == 0) {
+                System.err.println("Warning: Document with idDoc " + idDoc + " not found in dm_doc for deletion.");
+            }
         }
     }
 
@@ -134,10 +168,8 @@ public class DocCreator {
         try {
             conn = getConnection();
             conn.setAutoCommit(false);
-            // it reuses saveAllAttrVal which inserts. This will lead to duplicate attributes if run multiple times for updates.
-            // Proper update:
-            // 1. Delete existing attribute values for this idDoc from DM_AttrValue* tables.
-            // 2. Then call saveAllAttrVal.
+            // Delete existing attribute values for this idDoc from DM_AttrValue* tables.
+            // Then call saveAllAttrVal.
             saveAllAttrVal(conn, idDocType, idDoc, docAttrValues, docAttrNames, attrTypes);
             conn.commit();
         } catch (Exception e) {
@@ -257,7 +289,6 @@ public class DocCreator {
 
             sortSaveAttrVal(conn, idDoc, idDocTypeAttr, attrType, attrValue);
         }
-        // Removed conn.commit() - transaction managed by calling method
     }
 
     public int getAttributeIdByName(Connection conn, int idDocType, String attrName) throws SQLException {
@@ -311,7 +342,6 @@ public class DocCreator {
 
         // System.out.println("DEBUG: Fetched nameScript for idDocType " + idDocType + " IS: [" + nameScript + "]");
 
-        // Execute the script using the provided connection
         try (PreparedStatement ps_execute_script = conn.prepareStatement(nameScript)) {
             int expectedParams = 0;
             try {
