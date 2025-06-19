@@ -31,37 +31,37 @@ public class Main {
 
 
         List<String> attrNames3 = Arrays.asList("Zakaznik", "Rok");
-        List<String> attrValues3 = Arrays.asList(null, "2025"); // Empty string for Zakaznik
+        List<String> attrValues3 = Arrays.asList("bbb", "2025"); // Empty string for Zakaznik
         List<String> attrTypes3 = Arrays.asList("string", "long");
 
         // Document 4
         List<String> attrNames4 = Arrays.asList("Zakaznik", "Rok");
-        List<String> attrValues4 = Arrays.asList("ccc", null); //ccc and EMPTY for Rok causes an error
+        List<String> attrValues4 = Arrays.asList("ccc", "2025"); //ccc and EMPTY for Rok causes an error
         List<String> attrTypes4 = Arrays.asList("string", "long");
 //---------------------------------------------------------------------------------------------------------------
 
         try {
-//            System.out.println("Attempting to add Document 1 (aaa, 2019)...");
-//            docHandler.addDocument(docTypeId, docContent, docFormat,
-//                    attrValues1, attrNames1, attrTypes1);
-//            System.out.println("---- Finished processing Document 1 ----\n");
-//
-//            System.out.println("Attempting to add Document 2 (aaa, 2025)...");
-//            docHandler.addDocument(docTypeId, docContent, docFormat,
-//                    attrValues2, attrNames2, attrTypes2);
-//            System.out.println("---- Finished processing Document 2 ----\n");
-//
-//            System.out.println("Attempting to add Document 3 (EMPTY, 2025)...");
-//            docHandler.addDocument(docTypeId, docContent, docFormat,
-//                    attrValues3, attrNames3, attrTypes3);
-//            System.out.println("---- Finished processing Document 3 ----\n");
-//
-//            System.out.println("Attempting to add Document 4 (ccc, EMPTY)...");
-//            docHandler.addDocument(docTypeId, docContent, docFormat,
-//                    attrValues4, attrNames4, attrTypes4);
-//            System.out.println("---- Finished processing Document 4 ----\n");
+            System.out.println("Attempting to add Document 1 (aaa, 2019)...");
+            docHandler.addDocument(docTypeId, docContent, docFormat,
+                    attrValues1, attrNames1, attrTypes1);
+            System.out.println("---- Finished processing Document 1 ----\n");
 
-            docHandler.deleteDocument(1);;
+            System.out.println("Attempting to add Document 2 (aaa, 2025)...");
+            docHandler.addDocument(docTypeId, docContent, docFormat,
+                    attrValues2, attrNames2, attrTypes2);
+            System.out.println("---- Finished processing Document 2 ----\n");
+
+            System.out.println("Attempting to add Document 3 (bbb, 2025)...");
+            docHandler.addDocument(docTypeId, docContent, docFormat,
+                    attrValues3, attrNames3, attrTypes3);
+            System.out.println("---- Finished processing Document 3 ----\n");
+
+            System.out.println("Attempting to add Document 4 (ccc, 2025)...");
+            docHandler.addDocument(docTypeId, docContent, docFormat,
+                    attrValues4, attrNames4, attrTypes4);
+            System.out.println("---- Finished processing Document 4 ----\n");
+
+//            docHandler.deleteDocument(1);
 
         } catch (Exception e) {
             System.err.println("=====================================");

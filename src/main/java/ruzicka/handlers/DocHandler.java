@@ -459,44 +459,58 @@ public class DocHandler {
 
         // If empty then throw no content
         if (treeContentBytes == null || treeContentBytes.length == 0) {
-            System.out.println("Tree " + treeId + " is empty. No nodes to delete.");
+            System.err.println("Tree " + treeId + " is empty. No nodes to delete.");
             return;
         }
         arrayTree.fromByteArray(treeContentBytes);
         arrayTree.setNextFreeIndex(nextFreeIxForTree);
 
         int currentNodeId = startingNodeId;
+        String deleteXpathSql = "DELETE FROM dm_nodexpath WHERE idnodexpath = ?";
 
-        //go level up to the parent node
-        while (currentNodeId > 0) { //not deleting the root node (index 0)
-            ArrayTree.TreeNode currentNode = arrayTree.getNode(currentNodeId);
-            if (currentNode == null){
-                System.err.println("ERROR: Node " + currentNodeId + " not found in ArrayTree for tree " + treeId + ". Cannot delete empty nodes.");
-                break;
+        try (PreparedStatement ps = conn.prepareStatement(deleteXpathSql)) {
+
+            //go level up to the parent node
+            while (currentNodeId > 0) { //not deleting the root node (index 0)
+                ArrayTree.TreeNode currentNode = arrayTree.getNode(currentNodeId);
+                if (currentNode == null){
+                    System.err.println("ERROR: Node " + currentNodeId + " not found in ArrayTree for tree " + treeId + ". Cannot delete empty nodes.");
+                    break;
+                }
+                //decrease the number of docCount
+                if (currentNodeId == startingNodeId){
+                    currentNode.docCount--;
+                }
+
+                //check if current node is empty (0 children 0 docs)
+                if (currentNode.docCount <= 0 && currentNode.nodeCount <=0){
+                    int parentNodeId = currentNode.parentId;
+                    long idNodeNameToLog = currentNode.idNodeName; //for logging purposes
+                    long idNodeXPathToDelete = currentNode.idNodeXPath;
+
+                    String nodeName = dbManager.getNodeNameById(conn, currentNode.idNodeName);//purely cosmetic for logging
+
+                    //delete the node from the ArrayTree
+                    arrayTree.deleteNode(currentNodeId);
+                    System.out.println("Deleted empty node " + currentNodeId + " (name: '" + nodeName + "') from tree " + treeId);
+
+                    if (idNodeXPathToDelete > 0) {
+                        ps.setLong(1, idNodeXPathToDelete);
+                        int rowsAffected = ps.executeUpdate();
+                        if (rowsAffected > 0) {
+                            System.out.println("--> Deleted associated NodeXPath with ID: " + idNodeXPathToDelete);
+                        }
+                    }
+
+                    //moveup to the parent node
+                    currentNodeId = parentNodeId;
+                }else {
+                    System.out.println("Node " + currentNodeId + " (name: '" + dbManager.getNodeNameById(conn, currentNode.idNodeName) + "') is not empty. Ending.");
+                    break;
+                }
             }
-            //decrease the number of docCount
-            if (currentNodeId == startingNodeId){
-                currentNode.docCount--;
-            }
-
-            //check if current node is empty (0 children 0 docs)
-            if (currentNode.docCount <= 0 && currentNode.nodeCount <=0){
-                int parentNodeId = currentNode.parentId;
-
-                String nodeName = dbManager.getNodeNameById(conn, currentNode.idNodeName);//purely cosmetic for logging
-
-                //delete the node from the ArrayTree
-                arrayTree.deleteNode(currentNodeId);
-                System.out.println("Deleted empty node " + currentNodeId + " (name: '" + nodeName + "') from tree " + treeId);
-                //moveup to the parent node
-                currentNodeId = parentNodeId;
-            }else {
-                System.out.println("Node " + currentNodeId + " (name: '" + dbManager.getNodeNameById(conn, currentNode.idNodeName) + "') is not empty. Ending.");
-                break;
-            }
+            dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex());
+            System.out.println("Updated tree " + treeId + " after deleting empty nodes. NextFreeIndex: " + arrayTree.getNextFreeIndex());
         }
-        dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex());
-        System.out.println("Updated tree " + treeId + " after deleting empty nodes. NextFreeIndex: " + arrayTree.getNextFreeIndex());
-
     }
 }
