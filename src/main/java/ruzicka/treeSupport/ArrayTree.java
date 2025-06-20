@@ -11,6 +11,7 @@ import java.sql.SQLException;
  * Provides methods for node manipulation, serialization, and XPath generation.
  */
 public class ArrayTree {
+    private int treeId;
     private int maxNodes = 5;
     private TreeNode[] nodes = new TreeNode[maxNodes];
     private int nextFreeIndex = 1;
@@ -316,4 +317,7 @@ public class ArrayTree {
         this.currentNodeIndex = currentNodeIndex;
         return this;
     }
+
+    public int getTreeId() { return treeId; }
+    public ArrayTree setTreeId(int treeId) { this.treeId = treeId; return this; }
 }

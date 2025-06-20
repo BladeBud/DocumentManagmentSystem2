@@ -121,7 +121,7 @@ public class DocHandler {
         ArrayTree arrayTree = new ArrayTree();
         byte[] treeContentBytes = dbManager.getTreeContent(conn, treeId);
         int nextFreeIxForTree = dbManager.getTreeNextFreeNodeIndex(conn, treeId);
-//        arrayTree.setTreeId(treeId); // Set the treeId for context
+        arrayTree.setTreeId(treeId); // Set the treeId for context printout
 
         if (treeContentBytes != null && treeContentBytes.length > 0) {
             arrayTree.fromByteArray(treeContentBytes);
@@ -500,5 +500,87 @@ public class DocHandler {
             dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex());
             System.out.println("Updated tree " + treeId + " after deleting empty nodes. NextFreeIndex: " + arrayTree.getNextFreeIndex());
         }
+    }
+    //--------------------------------------------------------------------------------------------------------------
+    /**
+     * Public method to print the structure of a given tree.
+     * @param treeId The ID of the tree to print.
+     */
+    public void printTreeStructure(int treeId) {
+        System.out.println("\n=======================================================");
+        System.out.println("          TREE STRUCTURE FOR TREE ID: " + treeId);
+        System.out.println("=======================================================");
+
+        try (Connection conn = getConnection()) {
+            ArrayTree arrayTree = new ArrayTree();
+            byte[] treeContentBytes = dbManager.getTreeContent(conn, treeId);
+            if (treeContentBytes == null || treeContentBytes.length == 0) {
+                System.out.println("Tree is empty or does not exist.");
+                return;
+            }
+            arrayTree.fromByteArray(treeContentBytes);
+
+            // Start the recursive printing from the root node (index 0)
+            printNodeRecursive(conn, arrayTree, 0, "");
+
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to print tree structure for treeId: " + treeId, e);
+        }
+        System.out.println("=======================================================\n");
+    }
+
+    /**
+     * Recursively prints a node and its children.
+     * @param conn The database connection.
+     * @param tree The ArrayTree being traversed.
+     * @param nodeId The index of the current node to print.
+     * @param indent The string used for indentation to show hierarchy.
+     */
+    private void printNodeRecursive(Connection conn, ArrayTree tree, int nodeId, String indent) throws SQLException {
+        ArrayTree.TreeNode node = tree.getNode(nodeId);
+        if (node == null || node.idNodeName == 0) { // Skip unused or uninitialized nodes
+            return;
+        }
+
+        // Print the current node's name
+        String nodeName = dbManager.getNodeNameById(conn, node.idNodeName);
+        System.out.println(indent + "+-- " + nodeName + " [NodeID: " + nodeId + ", Docs: " + node.docCount + "]");
+
+        // Print the documents within this node
+        List<String> docNames = getDocumentNamesInNode(conn, tree.getTreeId(), nodeId); // Assuming getTreeId() exists or is passed
+        for (String docName : docNames) {
+            System.out.println(indent + "  |   - " + docName);
+        }
+
+        // Recursively call for all children of the current node
+        for (int i = 0; i < tree.getMaxNodes(); i++) {
+            ArrayTree.TreeNode childNode = tree.getNode(i);
+            // A node is a child if its parentId matches the current nodeId
+            if (childNode != null && childNode.parentId == nodeId && i != nodeId) { // i != nodeId prevents infinite loops for self-parented root
+                printNodeRecursive(conn, tree, i, indent + "  |");
+            }
+        }
+    }
+
+    /**
+     * Retrieves the names of all documents linked to a specific node in a specific tree.
+     * @param conn The database connection.
+     * @param treeId The ID of the tree.
+     * @param nodeId The index of the node in the ArrayTree.
+     * @return A list of document names.
+     */
+    private List<String> getDocumentNamesInNode(Connection conn, int treeId, int nodeId) throws SQLException {
+        List<String> names = new ArrayList<>();
+        String sql = "SELECT d.docname FROM dm_doc d JOIN dm_docnode dn ON d.iddoc = dn.iddoc WHERE dn.idtree = ? AND dn.ixnode = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, treeId);
+            ps.setInt(2, nodeId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    names.add(rs.getString("docname"));
+                }
+            }
+        }
+        return names;
     }
 }
