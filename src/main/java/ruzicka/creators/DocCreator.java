@@ -98,11 +98,13 @@ public class DocCreator {
         }
     }
     //----Document deletion------------------------------------------------------------------------------------------------
+
     /**
      * Deletes a document and all its associated data (content, attribute values) from the database.
      *
      * @param conn  The active database connection from the calling transaction.
      * @param idDoc The ID of the document to delete.
+     *
      * @throws SQLException If a database error occurs.
      */
     public void deleteDocument(Connection conn, long idDoc) throws SQLException {

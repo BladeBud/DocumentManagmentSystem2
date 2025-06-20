@@ -62,6 +62,7 @@ public class Main {
             System.out.println("---- Finished processing Document 4 ----\n");
 
 //            docHandler.deleteDocument(1);
+//printout the tree structure of the documents
 
         } catch (Exception e) {
             System.err.println("=====================================");

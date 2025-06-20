@@ -38,7 +38,8 @@ public class DocHandler {
                 DatabaseConfig.getPassword()
         );
     }
-//----addDocument-------------------------------------------------------------------------------------------------------
+
+    //----addDocument-------------------------------------------------------------------------------------------------------
     public void addDocument(Integer idDocType, Blob docContent, String docFormat,
                             List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
         Connection conn = null;
@@ -95,125 +96,116 @@ public class DocHandler {
         }
     }
 
+    /**
+     * Processes a document for a specific tree, placing it according to the defined structure and conditions.
+     *
+     * @param conn         The database connection.
+     * @param idDoc        The ID of the document to process.
+     * @param treeId       The ID of the tree to process the document against.
+     * @param attributeMap A map of document attributes used for placement conditions.
+     * @param idDocType    The type ID of the document.
+     *
+     * @throws SQLException If any SQL error occurs during processing.
+     */
+
     private void processDocumentForTree(Connection conn, long idDoc, int treeId,
                                         Map<String, String> attributeMap, int idDocType) throws SQLException {
 
+        //  Load or Initialize the Physical Tree ---
         int rootDefNodeIdForThisTree = getRootDefTreeNodeId(conn, treeId);
-
         if (rootDefNodeIdForThisTree == -1) {
-            System.err.println("CRITICAL: No root definition node (idDefParentTreeNode=0) found for treeId: " + treeId + ". Cannot process this tree for doc " + idDoc);
+            System.err.println("CRITICAL: No root definition node found for treeId: " + treeId + ". Cannot process this tree for doc " + idDoc);
             return;
         }
 
         ArrayTree arrayTree = new ArrayTree();
         byte[] treeContentBytes = dbManager.getTreeContent(conn, treeId);
         int nextFreeIxForTree = dbManager.getTreeNextFreeNodeIndex(conn, treeId);
+//        arrayTree.setTreeId(treeId); // Set the treeId for context
 
         if (treeContentBytes != null && treeContentBytes.length > 0) {
-            // System.out.println("Loading ArrayTree for tree " + treeId + " from " + treeContentBytes.length + " bytes. NextFreeIndex from DB: " + nextFreeIxForTree);
             arrayTree.fromByteArray(treeContentBytes);
             arrayTree.setNextFreeIndex(nextFreeIxForTree);
         } else {
-            // System.out.println("Initializing new ArrayTree for tree " + treeId);
             arrayTree.initArrayTree();
         }
 
+        // Initialize the Root Node of the Physical Tree if it's new ---
         if (arrayTree.getNode(0) != null && arrayTree.getNode(0).idNodeName == 0) {
             String rootNodeNameScript = null;
             String rootNodeNameSql = "SELECT nodenamescript FROM dm_deftreenode WHERE iddeftreenode = ?";
             try (PreparedStatement ps = conn.prepareStatement(rootNodeNameSql)) {
                 ps.setInt(1, rootDefNodeIdForThisTree);
                 try (ResultSet rs = ps.executeQuery()) {
-                    if (rs.next()) rootNodeNameScript = rs.getString(1);
-                    else {
+                    if (rs.next()) {
+                        rootNodeNameScript = rs.getString(1);
+                    } else {
                         System.err.println("CRITICAL: Could not fetch nodenamescript for root definition " + rootDefNodeIdForThisTree + " of tree " + treeId);
-                        return; // Cannot proceed if root definition itself is missing details
+                        return; // Cannot proceed if root definition itself is missing
                     }
                 }
             }
+            // fallback to get the name, even for the root.
             String actualRootNodeName = getNodeNameForDocumentAtLevel(conn, rootNodeNameScript, attributeMap, idDoc, rootDefNodeIdForThisTree);
             if (actualRootNodeName == null || actualRootNodeName.isEmpty()) {
-                actualRootNodeName = "_Tree" + treeId + "_DefinedRoot_";
-                System.err.println("WARN: Root definition script for tree " + treeId + " (def " + rootDefNodeIdForThisTree + ") yielded no name for doc " + idDoc + ". Using fallback: " + actualRootNodeName);
+                actualRootNodeName = "_Tree" + treeId + "_DefinedRoot_"; // Fallback name
+                System.err.println("WARN: Root definition script for tree " + treeId + " yielded no name for doc " + idDoc + ". Using fallback: " + actualRootNodeName);
             }
+            // Save the name and path for the physical root node.
             arrayTree.getNode(0).idNodeName = dbManager.saveNodeName(conn, actualRootNodeName);
             arrayTree.getNode(0).idNodeXPath = dbManager.saveNodeXPath(conn, "/" + actualRootNodeName);
-            // System.out.println("Named ArrayTree physical root (index 0) for tree " + treeId + " as: " + actualRootNodeName + " (from def " + rootDefNodeIdForThisTree + ")");
         }
 
-        // System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Starting recursive placement. RootDefID: " + rootDefNodeIdForThisTree + " (corresponds to ArrayTree Node 0).");
-        int finalNodeIdInArrayTree = placeDocumentInTreeRecursive(conn, arrayTree, rootDefNodeIdForThisTree, 0, idDoc, attributeMap, treeId);
+        // Recursively Find All Placement Locations
+        List<Integer> finalNodeIdsInArrayTree = placeDocumentInTreeRecursive(conn, arrayTree, rootDefNodeIdForThisTree, 0, idDoc, attributeMap, treeId);
 
-//         System.out.println(">>> Doc " + idDoc + ", Tree " + treeId + ": Placement result from recursion: finalNodeIdInArrayTree = " + finalNodeIdInArrayTree);
-
-        // After recursion, if finalNodeIdInArrayTree is still 0, it means the document belongs in the
-        // ArrayTree node 0 (which represents the tree's defined root), OR it didn't meet the root's own include condition.
-        // The recursive call already handles the include condition check for the root definition level.
-        // If `placeDocumentInTreeRecursive` returns 0 for the root definition call, it means the document
-        // belongs in ArrayTree[0] (if its include condition passed) or it "bounced" from it (if its condition failed).
-        // The parent of ArrayTree[0] is conceptually "outside this tree structure".
-        // So, we need to verify if it *truly* belongs in node 0.
-
-        boolean createLinkForThisTree = false;
-        if (finalNodeIdInArrayTree == 0) { // Candidate for root node placement
-            String rootNodeDocIncludeCondition = null;
-            String rootDefDetailsSql = "SELECT docincludecondition FROM dm_deftreenode WHERE iddeftreenode = ?";
-            try (PreparedStatement ps = conn.prepareStatement(rootDefDetailsSql)) {
-                ps.setInt(1, rootDefNodeIdForThisTree);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (rs.next()) rootNodeDocIncludeCondition = rs.getString("docincludecondition");
-                }
-            }
-            if (isMeaningfulCondition(rootNodeDocIncludeCondition)) {
-                createLinkForThisTree = checkDocIncludeCondition(conn, rootNodeDocIncludeCondition, idDoc, attributeMap, rootDefNodeIdForThisTree);
-            } else if (rootNodeDocIncludeCondition != null && rootNodeDocIncludeCondition.equalsIgnoreCase("true")) {
-                createLinkForThisTree = true;
-            } else if (getChildDefIds(conn, treeId, rootDefNodeIdForThisTree).isEmpty() &&
-                    (rootNodeDocIncludeCondition == null || rootNodeDocIncludeCondition.trim().isEmpty())) {
-                createLinkForThisTree = true; // Leaf root with no restrictive condition
-            }
-            if (!createLinkForThisTree) {
-                System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Did not meet include condition for root definition " + rootDefNodeIdForThisTree + " (ArrayTree node 0). Skipping linkage for this tree.");
-            }
-        } else { // finalNodeIdInArrayTree is > 0, meaning it was placed in a descendant node.
-            createLinkForThisTree = true;
-        }
-
-        if (!createLinkForThisTree) {
-            dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex()); // Still save tree state
-            return; // Do not create dm_docnode or dm_docxpath
-        }
-
-        // Proceed with linking if createLinkForThisTree is true
-        ArrayTree.TreeNode docFinalNodeInArrayTree = arrayTree.getNode(finalNodeIdInArrayTree);
-        if (docFinalNodeInArrayTree == null) {
-            System.err.println("CRITICAL: Final ArrayTree node " + finalNodeIdInArrayTree + " is null for tree " + treeId + ", doc " + idDoc + ". Aborting.");
+        //  Handle the Placement Results
+        if (finalNodeIdsInArrayTree.isEmpty()) {
+            System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Did not meet conditions for placement in any branch.");
+            // still save the tree because the process might have created new intermediate nodes
+            dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex());
             return;
         }
 
-        if (docFinalNodeInArrayTree.idNodeXPath == 0) {
-            String xpathStr = arrayTree.generateXpath(finalNodeIdInArrayTree, conn, this.dbManager);
-            // System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Generated XPath for ArrayTree node " + finalNodeIdInArrayTree + ": " + xpathStr);
-            long idNodeXPath = dbManager.saveNodeXPath(conn, xpathStr);
-            docFinalNodeInArrayTree.idNodeXPath = idNodeXPath;
+        System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Placing in " + finalNodeIdsInArrayTree.size() + " location(s): " + finalNodeIdsInArrayTree);
+
+        // Link the Document to Each Found Location
+        for (int finalNodeId : finalNodeIdsInArrayTree) {
+            ArrayTree.TreeNode docFinalNode = arrayTree.getNode(finalNodeId);
+            if (docFinalNode == null) {
+                System.err.println("CRITICAL: Final ArrayTree node " + finalNodeId + " is null for tree " + treeId + ". Skipping this placement.");
+                continue; // Skip to the next placement ID
+            }
+
+            // Generate and save the node's XPath if it hasnt been done already.
+            if (docFinalNode.idNodeXPath == 0) {
+                String xpathStr = arrayTree.generateXpath(finalNodeId, conn, this.dbManager);
+                long idNodeXPath = dbManager.saveNodeXPath(conn, xpathStr);
+                docFinalNode.idNodeXPath = idNodeXPath;
+            }
+
+            // Create the links in the database
+            dbManager.insertDocXPath(conn, idDoc, docFinalNode.idNodeXPath);
+            dbManager.insertDocNode(conn, idDoc, finalNodeId, treeId);
+
+            // Increment the document count for the physical node
+            docFinalNode.docCount++;
+            System.out.println("--> Linked doc to XPath ID " + docFinalNode.idNodeXPath + ". ArrayTree Node " + finalNodeId + " docCount is now: " + docFinalNode.docCount);
         }
 
-        dbManager.insertDocXPath(conn, idDoc, docFinalNodeInArrayTree.idNodeXPath);
-        docFinalNodeInArrayTree.docCount++;
-        System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Linked doc to XPath ID " + docFinalNodeInArrayTree.idNodeXPath + ". ArrayTree Node " + finalNodeIdInArrayTree + " docCount: " + docFinalNodeInArrayTree.docCount);
-
-        dbManager.insertDocNode(conn, idDoc, finalNodeIdInArrayTree, treeId);
-        System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Inserted into dm_docnode: (idDoc=" + idDoc + ", ixNode=" + finalNodeIdInArrayTree + ", idTree=" + treeId + ")");
-
+        //Save the Final State of the Tree
         dbManager.updateTree(conn, treeId, arrayTree.toByteArray(), arrayTree.getNextFreeIndex());
-        // System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Updated DM_Tree content. NextFreeIndex for ArrayTree: " + arrayTree.getNextFreeIndex());
+        System.out.println("Doc " + idDoc + ", Tree " + treeId + ": Updated DM_Tree content. NextFreeIndex for ArrayTree: " + arrayTree.getNextFreeIndex());
     }
 
 
-    private int placeDocumentInTreeRecursive(Connection conn, ArrayTree arrayTree,
-                                             int currentDefTreeNodeId, int currentParentArrayNodeIdInTree,
-                                             long idDoc, Map<String, String> attributeMap, int treeId) throws SQLException {
+    private List<Integer> placeDocumentInTreeRecursive(Connection conn, ArrayTree arrayTree,
+                                                       int currentDefTreeNodeId, int currentParentArrayNodeIdInTree,
+                                                       long idDoc, Map<String, String> attributeMap, int treeId) throws SQLException {
 
+        List<Integer> finalPlacementNodeIds = new ArrayList<>();
+
+        // --- Get definition details for the current level ---
         String defDetailsSql = "SELECT nodenamescript, docincludecondition FROM dm_deftreenode WHERE iddeftreenode = ?";
         String nodeNameScriptFromDB = null;
         String docIncludeCondition = null;
@@ -224,62 +216,56 @@ public class DocHandler {
                     nodeNameScriptFromDB = rs.getString("nodenamescript");
                     docIncludeCondition = rs.getString("docincludecondition");
                 } else {
-                    System.err.println("ERROR: Definition node " + currentDefTreeNodeId + " not found for tree " + treeId + " during recursion.");
-                    return currentParentArrayNodeIdInTree;
+                    System.err.println("ERROR: Definition node " + currentDefTreeNodeId + " not found for tree " + treeId);
+                    return finalPlacementNodeIds; // Return empty list
                 }
             }
         }
 
         int arrayNodeForThisDefinitionLevel;
-
+        // The root definition always corresponds to ArrayTree node 0.
         if (currentDefTreeNodeId == getRootDefTreeNodeId(conn, treeId)) {
             arrayNodeForThisDefinitionLevel = 0;
-            // Name/XPath for arrayTree.getNode(0) was set in processDocumentForTree.
-            // System.out.println("Def " + currentDefTreeNodeId + " (Tree Root Def): Corresponds to ArrayTree node 0.");
         } else {
+            // For non-root nodes, generate the name and find/create the physical node.
             String actualNodeNameForThisDoc = getNodeNameForDocumentAtLevel(conn, nodeNameScriptFromDB, attributeMap, idDoc, currentDefTreeNodeId);
-            if (actualNodeNameForThisDoc != null && !actualNodeNameForThisDoc.isEmpty()) {
-                long idNodeName = dbManager.saveNodeName(conn, actualNodeNameForThisDoc);
-                arrayNodeForThisDefinitionLevel = findOrInsertArrayTreeNode(arrayTree, currentParentArrayNodeIdInTree, idNodeName, actualNodeNameForThisDoc, "DYNAMIC", currentDefTreeNodeId);
-            } else if (nodeNameScriptFromDB != null && nodeNameScriptFromDB.toLowerCase().startsWith("select '")) {
-                String staticName = evaluateStaticScript(conn, nodeNameScriptFromDB);
-                if (staticName != null && !staticName.isEmpty()) {
-                    long idStaticNodeName = dbManager.saveNodeName(conn, staticName);
-                    arrayNodeForThisDefinitionLevel = findOrInsertArrayTreeNode(arrayTree, currentParentArrayNodeIdInTree, idStaticNodeName, staticName, "STATIC", currentDefTreeNodeId);
-                } else {
-                    return currentParentArrayNodeIdInTree;
-                }
-            } else {
-                return currentParentArrayNodeIdInTree;
+            if (actualNodeNameForThisDoc == null || actualNodeNameForThisDoc.isEmpty()) {
+                // If node name cant be generated, this branch is not applicable for this doc.
+                return finalPlacementNodeIds; // Return empty list
             }
+            long idNodeName = dbManager.saveNodeName(conn, actualNodeNameForThisDoc);
+            arrayNodeForThisDefinitionLevel = findOrInsertArrayTreeNode(arrayTree, currentParentArrayNodeIdInTree, idNodeName, actualNodeNameForThisDoc, "DYNAMIC", currentDefTreeNodeId);
         }
 
+        // --- Explore children definitions ---
         List<Integer> childDefIds = getChildDefIds(conn, treeId, currentDefTreeNodeId);
+        boolean placedInChildBranch = false;
         if (!childDefIds.isEmpty()) {
             for (int childDefId : childDefIds) {
-                int placementByChild = placeDocumentInTreeRecursive(conn, arrayTree, childDefId, arrayNodeForThisDefinitionLevel, idDoc, attributeMap, treeId);
-                if (placementByChild != arrayNodeForThisDefinitionLevel) {
-                    return placementByChild;
+                // Recursively call for each child and add all found placements to our list.
+                List<Integer> placementIdsFromChild = placeDocumentInTreeRecursive(conn, arrayTree, childDefId, arrayNodeForThisDefinitionLevel, idDoc, attributeMap, treeId);
+                if (!placementIdsFromChild.isEmpty()) {
+                    finalPlacementNodeIds.addAll(placementIdsFromChild);
+                    placedInChildBranch = true;
                 }
             }
         }
 
-        boolean docBelongsAtThisNode = false;
-        if (isMeaningfulCondition(docIncludeCondition)) {
-            docBelongsAtThisNode = checkDocIncludeCondition(conn, docIncludeCondition, idDoc, attributeMap, currentDefTreeNodeId);
-        } else if (docIncludeCondition != null && docIncludeCondition.equalsIgnoreCase("true")) {
-            docBelongsAtThisNode = true;
-        } else if (childDefIds.isEmpty() && (docIncludeCondition == null || docIncludeCondition.trim().isEmpty())) {
-            // System.out.println("Def " + currentDefTreeNodeId + " (ArrayNode " + arrayNodeForThisDefinitionLevel +", Leaf with no/empty/non-false condition): Assuming doc " + idDoc + " belongs.");
-            docBelongsAtThisNode = true;
+        // --- Decide if the document should be placed at the CURRENT level ---
+        if (!placedInChildBranch) {
+            boolean docBelongsAtThisNode = false;
+            if (isMeaningfulCondition(docIncludeCondition)) {
+                docBelongsAtThisNode = checkDocIncludeCondition(conn, docIncludeCondition, idDoc, attributeMap, currentDefTreeNodeId);
+            } else if (docIncludeCondition != null && (docIncludeCondition.equalsIgnoreCase("true") || docIncludeCondition.trim().isEmpty())) {
+                docBelongsAtThisNode = true;
+            }
+
+            if (docBelongsAtThisNode) {
+                finalPlacementNodeIds.add(arrayNodeForThisDefinitionLevel);
+            }
         }
 
-        if (docBelongsAtThisNode) {
-            // System.out.println("Doc " + idDoc + " final placement at ArrayTree node " + arrayNodeForThisDefinitionLevel + " (def " + currentDefTreeNodeId + ") based on its include condition.");
-            return arrayNodeForThisDefinitionLevel;
-        } else {
-            return currentParentArrayNodeIdInTree;
-        }
+        return finalPlacementNodeIds;
     }
 
     private int findOrInsertArrayTreeNode(ArrayTree arrayTree, int parentArrayNodeId, long idNodeName, String actualName, String type, int defId) {
@@ -402,9 +388,9 @@ public class DocHandler {
     }
 
     //----deleteDocument---------------------------------------------------------------------------------------------------
-    public void deleteDocument(long idDoc){
+    public void deleteDocument(long idDoc) {
         Connection conn = null;
-        try{
+        try {
             conn = getConnection();
             conn.setAutoCommit(false);
 
@@ -436,7 +422,8 @@ public class DocHandler {
             e.printStackTrace(System.err);
         }
     }
-//----helpers for deleteDocument----------------------------------------------------------------------------------------
+
+    //----helpers for deleteDocument----------------------------------------------------------------------------------------
     private Map<Integer, Integer> getDocumentNodeLocations(Connection conn, long idDoc) throws SQLException {
         Map<Integer, Integer> locations = new HashMap<>();
         String sql = "SELECT idtree, ixnode FROM dm_docnode WHERE iddoc = ?";
@@ -450,6 +437,7 @@ public class DocHandler {
         }
         return locations;
     }
+
     //----cascade delete all empty nodes---------------------------------------------------------------------------------
     private void cascadeDeleteEmptyNodes(Connection conn, int treeId, int startingNodeId) throws SQLException {
 
@@ -471,19 +459,19 @@ public class DocHandler {
         try (PreparedStatement ps = conn.prepareStatement(deleteXpathSql)) {
 
             //go level up to the parent node
-            while (currentNodeId > 0) { //not deleting the root node (index 0)
+            while (currentNodeId >= 0) { //deleting even root (index 0)
                 ArrayTree.TreeNode currentNode = arrayTree.getNode(currentNodeId);
-                if (currentNode == null){
+                if (currentNode == null) {
                     System.err.println("ERROR: Node " + currentNodeId + " not found in ArrayTree for tree " + treeId + ". Cannot delete empty nodes.");
                     break;
                 }
                 //decrease the number of docCount
-                if (currentNodeId == startingNodeId){
+                if (currentNodeId == startingNodeId) {
                     currentNode.docCount--;
                 }
 
                 //check if current node is empty (0 children 0 docs)
-                if (currentNode.docCount <= 0 && currentNode.nodeCount <=0){
+                if (currentNode.docCount <= 0 && currentNode.nodeCount <= 0) {
                     int parentNodeId = currentNode.parentId;
                     long idNodeNameToLog = currentNode.idNodeName; //for logging purposes
                     long idNodeXPathToDelete = currentNode.idNodeXPath;
@@ -504,7 +492,7 @@ public class DocHandler {
 
                     //moveup to the parent node
                     currentNodeId = parentNodeId;
-                }else {
+                } else {
                     System.out.println("Node " + currentNodeId + " (name: '" + dbManager.getNodeNameById(conn, currentNode.idNodeName) + "') is not empty. Ending.");
                     break;
                 }

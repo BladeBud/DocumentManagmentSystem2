@@ -241,11 +241,9 @@ public class ArrayTree {
                 // Attempt to fetch pre-stored XPath. This might be from a previous generation.
                 // This assumes idNodeXPath stores the ID of the *full* path.
                 // If idNodeXPath is only for the node's own segment, this logic needs change.
-                // For now, assume it's the full path ID.
                 return dbManager.getNodeXPathById(conn, targetNode.idNodeXPath);
             } catch (SQLException e) {
                 System.err.println("WARN: Could not fetch pre-stored XPath for idNodeXPath " + targetNode.idNodeXPath + ". Will attempt to generate. Error: " + e.getMessage());
-                // Fall through to generate if fetching fails
             }
         }
 
@@ -258,9 +256,7 @@ public class ArrayTree {
             if (currentNode.idNodeName != 0) {
                 String nodeName = dbManager.getNodeNameById(conn, currentNode.idNodeName);
                 xpath.insert(0, "/" + (nodeName == null ? "_ERR_NAME_" : nodeName));
-            } else if (currentId == 0) { // Root node without a specific name (e.g. fresh tree)
-                // If we reach here, and it's root and has no name, the path will just start with "/"
-                // or be empty if it's the only node.
+            } else if (currentId == 0) { // Root node without a specific name
             } else {
                 xpath.insert(0, "/_UNNAMED_ID_" + currentId + "_");
                 System.err.println("Warning: Node " + currentId + " in XPath generation has no idNodeName.");
