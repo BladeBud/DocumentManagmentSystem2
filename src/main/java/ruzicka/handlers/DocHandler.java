@@ -199,13 +199,15 @@ public class DocHandler {
     }
 
 
+    // In class DocHandler
+
     private List<Integer> placeDocumentInTreeRecursive(Connection conn, ArrayTree arrayTree,
                                                        int currentDefTreeNodeId, int currentParentArrayNodeIdInTree,
                                                        long idDoc, Map<String, String> attributeMap, int treeId) throws SQLException {
 
         List<Integer> finalPlacementNodeIds = new ArrayList<>();
 
-        // --- Get definition details for the current level ---
+        // --- 1. Get definition details for the current level ---
         String defDetailsSql = "SELECT nodenamescript, docincludecondition FROM dm_deftreenode WHERE iddeftreenode = ?";
         String nodeNameScriptFromDB = null;
         String docIncludeCondition = null;
@@ -222,27 +224,43 @@ public class DocHandler {
             }
         }
 
-        int arrayNodeForThisDefinitionLevel;
-        // The root definition always corresponds to ArrayTree node 0.
-        if (currentDefTreeNodeId == getRootDefTreeNodeId(conn, treeId)) {
-            arrayNodeForThisDefinitionLevel = 0;
+        // --- 2. GATEKEEPER CHECK: See if the document belongs in this branch at all ---
+        boolean docCanEnterThisBranch = false;
+        // An empty or true condition always allows entry
+        if (docIncludeCondition == null || docIncludeCondition.trim().isEmpty() || docIncludeCondition.equalsIgnoreCase("true")) {
+            docCanEnterThisBranch = true;
+        } else if (docIncludeCondition.equalsIgnoreCase("false")) {
+            docCanEnterThisBranch = false;
         } else {
-            // For non-root nodes, generate the name and find/create the physical node.
+            // For meaningful conditions, execute the check against the DB
+            docCanEnterThisBranch = checkDocIncludeCondition(conn, docIncludeCondition, idDoc, attributeMap, currentDefTreeNodeId);
+        }
+
+
+        if (!docCanEnterThisBranch) {
+            // If the document fails the condition, it cannot be placed here OR in any of its children.
+            // Stop processing this entire branch immediately by returning an empty list.
+            return finalPlacementNodeIds;
+        }
+
+        // --- 3. Create the physical node for this level ---
+        int arrayNodeForThisDefinitionLevel;
+        if (currentDefTreeNodeId == getRootDefTreeNodeId(conn, treeId)) {
+            arrayNodeForThisDefinitionLevel = 0; // Root is always at index 0
+        } else {
             String actualNodeNameForThisDoc = getNodeNameForDocumentAtLevel(conn, nodeNameScriptFromDB, attributeMap, idDoc, currentDefTreeNodeId);
             if (actualNodeNameForThisDoc == null || actualNodeNameForThisDoc.isEmpty()) {
-                // If node name cant be generated, this branch is not applicable for this doc.
-                return finalPlacementNodeIds; // Return empty list
+                return finalPlacementNodeIds;
             }
             long idNodeName = dbManager.saveNodeName(conn, actualNodeNameForThisDoc);
             arrayNodeForThisDefinitionLevel = findOrInsertArrayTreeNode(arrayTree, currentParentArrayNodeIdInTree, idNodeName, actualNodeNameForThisDoc, "DYNAMIC", currentDefTreeNodeId);
         }
 
-        // --- Explore children definitions ---
+        // --- 4. Explore children definitions ---
         List<Integer> childDefIds = getChildDefIds(conn, treeId, currentDefTreeNodeId);
         boolean placedInChildBranch = false;
         if (!childDefIds.isEmpty()) {
             for (int childDefId : childDefIds) {
-                // Recursively call for each child and add all found placements to our list.
                 List<Integer> placementIdsFromChild = placeDocumentInTreeRecursive(conn, arrayTree, childDefId, arrayNodeForThisDefinitionLevel, idDoc, attributeMap, treeId);
                 if (!placementIdsFromChild.isEmpty()) {
                     finalPlacementNodeIds.addAll(placementIdsFromChild);
@@ -251,18 +269,9 @@ public class DocHandler {
             }
         }
 
-        // --- Decide if the document should be placed at the CURRENT level ---
+        // --- 5. Final Placement: If it wasn't placed deeper, place it here ---
         if (!placedInChildBranch) {
-            boolean docBelongsAtThisNode = false;
-            if (isMeaningfulCondition(docIncludeCondition)) {
-                docBelongsAtThisNode = checkDocIncludeCondition(conn, docIncludeCondition, idDoc, attributeMap, currentDefTreeNodeId);
-            } else if (docIncludeCondition != null && (docIncludeCondition.equalsIgnoreCase("true") || docIncludeCondition.trim().isEmpty())) {
-                docBelongsAtThisNode = true;
-            }
-
-            if (docBelongsAtThisNode) {
-                finalPlacementNodeIds.add(arrayNodeForThisDefinitionLevel);
-            }
+            finalPlacementNodeIds.add(arrayNodeForThisDefinitionLevel);
         }
 
         return finalPlacementNodeIds;
@@ -351,22 +360,32 @@ public class DocHandler {
     }
 
     private boolean checkDocIncludeCondition(Connection conn, String conditionSql, long idDoc, Map<String, String> attributeMap, int defId) throws SQLException {
-        if (!isMeaningfulCondition(conditionSql)) {
-            return (conditionSql != null && conditionSql.equalsIgnoreCase("true"));
+        // Handle the simple cases of 'true', 'false', or empty/null
+        if (conditionSql == null || conditionSql.trim().isEmpty() || conditionSql.equalsIgnoreCase("true")) {
+            return true;
         }
-        String finalSql = conditionSql.replaceAll(":\\w+\\b", "TRUE");
-        finalSql = finalSql.replaceAll("\\b(dm_doc|DM_DOC)\\.iddoc\\b", "d.iddoc");
+        if (conditionSql.equalsIgnoreCase("false")) {
+            return false;
+        }
 
-        String checkSql = "SELECT EXISTS (SELECT 1 FROM dm_doc d WHERE d.iddoc = ? AND (" + finalSql + "))";
-        try (PreparedStatement ps = conn.prepareStatement(checkSql)) {
+        // This wrapper provides the "d" alias and the single '?' parameter for the 02_nodedefinition.sql.
+        String sql = "SELECT CASE WHEN EXISTS (SELECT 1 FROM dm_doc d WHERE d.iddoc = ? AND (" + conditionSql + ")) THEN true ELSE false END";
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            // Bind the document ID to the one and only '?' placeholder.
             ps.setLong(1, idDoc);
+
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() && rs.getBoolean(1);
+                if (rs.next()) {
+                    return rs.getBoolean(1);
+                }
             }
         } catch (SQLException e) {
-            System.err.println("ERROR evaluating docIncludeCondition for def " + defId + " [" + conditionSql + "] with idDoc " + idDoc + ": " + e.getMessage());
+            System.err.println("ERROR evaluating docIncludeCondition for def " + defId + " [Full SQL: " + sql.replace("?", String.valueOf(idDoc)) + "]: " + e.getMessage());
             throw e;
         }
+
+        return false; // Default to false if something goes wrong.
     }
 
     private boolean isMeaningfulCondition(String condition) {
