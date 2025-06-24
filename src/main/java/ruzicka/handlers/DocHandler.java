@@ -602,4 +602,32 @@ public class DocHandler {
         }
         return names;
     }
+    //----updateDocument---------------------------------------------------------------------------------------------------
+    public void updateDocument(long idDoc,Integer idDocType, Blob docContent, String docFormat,
+                               List<String> docAttrValues, List<String> docAttrNames, List<String> attrTypes) {
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            conn.setAutoCommit(false);
+
+            deleteDocument(idDoc);
+            addDocument(idDocType, docContent, docFormat, docAttrValues, docAttrNames, attrTypes);
+
+            System.out.println("Successfully reprocessed all trees for updated document idDoc: " + idDoc);
+
+            conn.commit();
+        } catch (Exception e) {
+            if (conn != null) {
+                try {
+                    System.err.println("Rolling back transaction due to error: " + e.getMessage());
+                    conn.rollback();
+                } catch (SQLException ex) {
+                    System.err.println("Error during transaction rollback: " + ex.getMessage());
+                    e.addSuppressed(ex);
+                }
+            }
+            System.err.println("Full error during updateDocument:");
+            e.printStackTrace(System.err);
+        }
+    }
 }

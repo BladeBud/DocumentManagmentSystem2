@@ -57,8 +57,7 @@ public class Main {
 
         // ---- 4. DELETING A DOCUMENT ----
         System.out.println("\n[PHASE 4: DELETING A DOCUMENT]");
-        // We will delete Document 2 (ID=2), which is the only document for customer 'bbb'.
-        // This should cause the '/Root/bbb' node to be removed after deletion.
+
         try {
             System.out.println("Attempting to delete Document with ID = 2 ('Faktura-bbb-2023')...");
             docHandler.deleteDocument(2);
@@ -67,14 +66,21 @@ public class Main {
             e.printStackTrace();
         }
 
-        // ---- 5. PRINT FINAL TREE STRUCTURES ----
+        // ---- 5. PRINT  TREE STRUCTURES ----
         System.out.println("\n[PHASE 5: VIEWING FINAL TREE STRUCTURE]");
         System.out.println("Tree structure after deleting Document 2. Node '/bbb' should be gone from Tree 1.");
         docHandler.printTreeStructure(1);
         docHandler.printTreeStructure(2);
 
-        System.out.println("********** DMS DEMO COMPLETE **********");
+        // ---- 6. UPDATING A DOCUMENT ----
+        docHandler.updateDocument(1,1, null, "pdf",
+                Arrays.asList("aaa", "2000"),
+                Arrays.asList("Zakaznik", "Rok"),
+                Arrays.asList("string", "long"));
+        docHandler.printTreeStructure(1);
+        docHandler.printTreeStructure(2);
     }
+
 
     /**
      * Helper method to add a predefined set of documents.
